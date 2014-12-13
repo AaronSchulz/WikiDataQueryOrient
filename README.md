@@ -27,10 +27,12 @@ Importing scripts and query helper classes for storing WikiData information in O
 
 8) 	Run the schema.sql via the console (e.g. console.sh)
 
-9) 	Import vertexes:
+9)	Grab a JSON dump file from http://dumps.wikimedia.org/other/wikidata/
+
+10) Import vertexes:
 	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase vertexes --user root --password root --posfile=pos/lastv.pos --method=insert
 
-10) Import edges:
+11) Import edges:
 	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase edges --user root --password root --posfile=pos/laste.pos --method=bulk_init
 
 *** Updating via API ***

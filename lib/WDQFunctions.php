@@ -115,22 +115,21 @@ class WDQUtils {
  * Example query:
  * SELECT id,claim FROM
  * DIFFERENCE(
- * 	{HPwIVTree[X:Y]}
+ * 	{HPwIVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
  * 	UNION(
  * 		{HPwIV[X:A,B,C] WHERE(HPwIV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y]))}
  * 		{HPwQV[X:A,B,-C TO D] QUALIFY(HPwTV[P,X,Y])}
  * 		INTERSECT(
  * 			{HPwIV[X:Y] WHERE(HPwIV[X:Y] AND (HPwIV[X:Y] OR HPwIV[X:Y]))}
- * 			{HPwIV[X:Y] WHERE(HPwIV[X:Y])}
+ * 			{HPwIV[X:Y] RANK(best) WHERE(HPwIV[X:Y])}
  * 			{HPwIV[X:Y]}
- * 			{tree[X,Y,Z][P][Q])}
+ * 			{HPwIVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
  * 		)
  * 		{HPwIVTree[X:Y] QUALIFY(HPwQV[X:Y]) AND (HPwQV[X:Y] OR HPwQV[X:Y])) WHERE(link[X,Y])}
  * 	)
  * 	INTERSECT(
- * 		{HPwIVTree[X:Y] QUALIFY(HPwQV[P,X,Y] AND HPwQV[P,X,Y])}
- * 		{HPwIVTree[X:Y]}
- * 		{HP[X,Y,Z] QUALIFY(HPwSV[X:"Y"])}
+ * 		{HPwIVWeb[X] OUTGOING[X,Y] INCOMING[X,Y] RANK(best)}
+ * 		{HP[X,Y,Z] RANK(preferred) QUALIFY(HPwSV[X:"Y"])}
  * 		{HPwCV[X:(AROUND A B C),(AROUND A B C)] QUALIFY(HPwIV[P:X]) WHERE(link[X,Y])}
  * 	)
  * )
@@ -285,16 +284,24 @@ class WDQEasyQuery {
 			$sql = "SELECT out,oid FROM HPwSV WHERE in.id=$pId AND ($orClause)";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
-		} elseif ( preg_match( "/^HPwQV\[(\d+):([^]]+)\]\s*/", $s, $m ) ) {
+		} elseif ( preg_match( "/^HPwQV\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
 			$pId = $m[1];
-			$where = self::parseRangeDive( $m[2] );
+			$where = self::parseRangeDive( 'val', $m[2] );
+			$order = isset( $m[3] ) ? $m[3] : null;
 			$sql = "SELECT out,oid FROM HPwQV WHERE in.id=$pId AND $where";
+			if ( $order ) {
+				$sql .= " ORDER BY val $order";
+			}
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
-		} elseif ( preg_match( "/^HPwTV\[(\d+):([^\]]+)\]\s*/", $s, $m ) ) {
+		} elseif ( preg_match( "/^HPwTV\[(\d+):([^\]]+)\]\s*(ASC|DESC)?/", $s, $m ) ) {
 			$pId = $m[1];
-			$where = self::parseRangeDive( $m[2] );
+			$where = self::parseRangeDive( 'val', $m[2] );
+			$order = isset( $m[3] ) ? $m[3] : null;
 			$sql = "SELECT out,oid FROM HPwTV WHERE in.id=$pId AND $where";
+			if ( $order ) {
+				$sql .= " ORDER BY val $order";
+			}
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $s, $m ) ) {
@@ -370,7 +377,29 @@ EOD;
 
 		$rest = trim( $rest );
 		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
-		// Check if there is a qualifier condition
+		// Check if there is a RANK condition
+		if ( $token === 'RANK' ) {
+			$rest = substr( $rest, strlen( $token ) );
+			$rank = self::consume( $rest, '()' );
+
+			static $rankMap = array(
+				'deprecated' => -1,
+				'normal'     => 0,
+				'preferred'  => 1
+			);
+
+			if ( $rank === 'best' ) {
+				$sql .= " AND (best=1)";
+			} elseif ( isset( $rankMap[$rank] ) ) {
+				$sql .= " AND (rank={$rankMap[$rank]})";
+			} else {
+				throw new ParseException( "Bad rank: '$rank'" );
+			}
+		}
+
+		$rest = trim( $rest );
+		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
+		// Check if there is a QUALIFY condition
 		if ( $token === 'QUALIFY' ) {
 			if ( $qualiferPrefix === null ) {
 				throw new ParseException( "Index query does not support qualifiers: $s" );
@@ -382,11 +411,26 @@ EOD;
 
 		$rest = trim( $rest );
 		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
-		// Check if there is a where condition
+		// Check if there is a WHERE condition
 		if ( $token === 'WHERE' ) {
 			$rest = substr( $rest, strlen( $token ) );
 			$statement = self::consume( $rest, '()' );
 			$sql .= " AND (" . self::parseFilters( $statement, $filterPrefix, $map ) . ")";
+		}
+
+		$rest = trim( $rest );
+		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
+		// Check if there is a LIMI condition
+		if ( $token === 'LIMIT' ) {
+			$rest = substr( $rest, strlen( $token ) );
+			$limit = (int)self::consume( $rest, '()' );
+			if ( $limit > 0 ) {
+				$sql .= " LIMIT $limit";
+			}
+		}
+
+		if ( strlen( $rest ) ) {
+			throw new ParseException( "Excess query statements found: $rest" );
 		}
 
 		return $sql;
@@ -554,10 +598,11 @@ EOD;
 	/**
 	 * Parse stuff like "A,B,-C TO D" for index based queries
 	 *
+	 * @param string $field
 	 * @param string $s
 	 * @return string
 	 */
-	protected static function parseRangeDive( $s ) {
+	protected static function parseRangeDive( $field, $s ) {
 		$in = array();
 		$where = array();
 
@@ -568,14 +613,14 @@ EOD;
 			if ( preg_match( "/^$float\$/", $v ) ) {
 				$in[] = $v;
 			} elseif ( preg_match( "/^($float) TO ($float)\$/", $v, $m ) ) {
-				$where[] = "(val BETWEEN {$m[1]} AND {$m[2]})";
+				$where[] = "($field BETWEEN {$m[1]} AND {$m[2]})";
 			} else {
 				throw new ParseException( "Unparsable: $v" );
 			}
 		}
 
 		if ( $in ) {
-			$where[] = self::makeORClause( 'val', $in );
+			$where[] = self::makeORClause( $field, $in );
 		}
 
 		if ( !$where ) {
