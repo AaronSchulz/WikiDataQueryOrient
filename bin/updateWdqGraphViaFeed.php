@@ -1,13 +1,13 @@
 <?php
 
 require_once( __DIR__ . '/../lib/OrientDB-PHP-master/OrientDB/OrientDB.php' );
-require_once( __DIR__ . '/../lib/WDQFunctions.php' );
-require_once( __DIR__ . '/../lib/WDQManager.php' );
 require_once( __DIR__ . '/../lib/MultiHttpClient.php' );
+require_once( __DIR__ . '/../lib/autoload.php' );
 
 define( 'API_QUERY_URL', 'http://www.wikidata.org/w/api.php' );
 
 error_reporting( E_ALL );
+ini_set( 'memory_limit', '256M' );
 
 function main() {
 	$options = getopt( '', array(
@@ -27,7 +27,7 @@ function main() {
 	$db = new OrientDB( 'localhost', 2424 );
 	$connected = $db->connect( $user, $password );
 	$config = $db->DBOpen( 'WikiData', 'admin', 'admin' );
-	$gmr = new WDQManager( $db );
+	$gmr = new WdqUpdater( $db );
 	$http = new MultiHttpClient( array() );
 
 	// Sanity check oldest RC entry to see if the table was pruned in the range.

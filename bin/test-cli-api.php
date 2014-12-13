@@ -1,7 +1,6 @@
 <?php
 
-require_once( __DIR__ . '/../lib/OrientDB-PHP-master/OrientDB/OrientDB.php' );
-require_once( __DIR__ . '/../lib/WDQFunctions.php' );
+require_once( __DIR__ . '/../lib/autoload.php' );
 
 $queries[] = 'SELECT (id) FROM {items[1339,350,34,64,747,24242,636,3] WHERE(haslinks["enwiki"])}';
 $queries[] = 'SELECT (id) FROM {linkedto["enwiki#Universe"]}';
@@ -29,5 +28,5 @@ $queries[] = 'SELECT (id) FROM {HPwIVWeb[30] OUTGOING[150] INCOMING[17,131]}';
 
 foreach ( $queries as $query ) {
 	print( $query . "\n=====\n" );
-	print( WDQEasyQuery::parse( "$query" ) . "\n\n" );
+	print( WdqQueryParser::parse( "$query" ) . "\n\n" );
 }

@@ -1,12 +1,10 @@
 <?php
 
-require_once( __DIR__ . '/WDQFunctions.php' );
-
 if ( !class_exists( 'OrientDB' ) ) {
 	die( "Missing PHP OrientDB library." );
 }
 
-class WDQManager {
+class WdqUpdater {
 	/** @var OrientDB */
 	protected $db;
 
@@ -40,19 +38,19 @@ class WDQManager {
 		}
 		// Include the property IDs (pids) referenced for tracking
 		$coreItem = array(
-			'id'        => WDQUtils::wdcToLong( $item['id'] ),
+			'id'        => WdqUtils::wdcToLong( $item['id'] ),
 			'claims'    => $claims,
 			'sitelinks' => $siteLinks ? $siteLinks : (object)array()
 		) + $this->getReferenceIdSet( $claims );
 
 		if ( $update === 'update' || $update === 'upsert' ) {
 			$this->tryCommand( "update Item content " .
-				WDQUtils::toJSON( $coreItem ) . " where id='{$coreItem['id']}'" );
+				WdqUtils::toJSON( $coreItem ) . " where id='{$coreItem['id']}'" );
 		}
 
 		if ( $update === 'insert' || $update === 'upsert' ) {
 			$this->tryCommand( 'create vertex Item content ' .
-				WDQUtils::toJSON( $coreItem ) );
+				WdqUtils::toJSON( $coreItem ) );
 		}
 	}
 
@@ -66,7 +64,7 @@ class WDQManager {
 		$refs = array( 'pids' => array(), 'iids' => array() );
 
 		foreach ( $claims as $propertyId => $statements ) {
-			$pid = WDQUtils::wdcToLong( $propertyId );
+			$pid = WdqUtils::wdcToLong( $propertyId );
 			$refs['pids'][] = $pid;
 			foreach ( $statements as $statement ) {
 				$mainSnak = $statement['mainsnak'];
@@ -90,18 +88,18 @@ class WDQManager {
 	 */
 	public function importPropertyVertex( array $item, $update ) {
 		$coreItem = array(
-			'id'       => WDQUtils::wdcToLong( $item['id'] ),
+			'id'       => WdqUtils::wdcToLong( $item['id'] ),
 			'datatype' => $item['datatype']
 		);
 
 		if ( $update === 'update' || $update === 'upsert' ) {
 			$this->tryCommand( "update Property content " .
-				WDQUtils::toJSON( $coreItem ) . " where id='{$coreItem['id']}'" );
+				WdqUtils::toJSON( $coreItem ) . " where id='{$coreItem['id']}'" );
 		}
 
 		if ( $update === 'insert' || $update === 'upsert' ) {
 			$this->tryCommand( "create vertex Property content " .
-				WDQUtils::toJSON( $coreItem ) );
+				WdqUtils::toJSON( $coreItem ) );
 		}
 	}
 
@@ -124,11 +122,11 @@ class WDQManager {
 			'deprecated' => -1
 		);
 
-		$qId = WDQUtils::wdcToLong( $item['id'] );
+		$qId = WdqUtils::wdcToLong( $item['id'] );
 
 		$maxRankByPid = array(); // map of (pid => rank)
 		foreach ( $item['claims'] as $propertyId => $statements ) {
-			$pId = WDQUtils::wdcToLong( $propertyId );
+			$pId = WdqUtils::wdcToLong( $propertyId );
 			foreach ( $statements as $statement ) {
 				$rank = $rankMap[$statement['rank']];
 				$maxRankByPid[$pId] = isset( $maxRankByPid[$pId] )
@@ -139,7 +137,7 @@ class WDQManager {
 
 		$dvEdges = array(); // list of data value statements (maps with class/val/rank)
 		foreach ( $item['claims'] as $propertyId => $statements ) {
-			$pId = WDQUtils::wdcToLong( $propertyId );
+			$pId = WdqUtils::wdcToLong( $propertyId );
 			foreach ( $statements as $statement ) {
 				$dvEdge = false;
 
@@ -205,7 +203,7 @@ class WDQManager {
 				"create edge $class " .
 				"from (select from Item where id='$qId') " .
 				"to (select from $toClass where id='{$dvEdge['iid']}') content " .
-				WDQUtils::toJSON( $dvEdge );
+				WdqUtils::toJSON( $dvEdge );
 		}
 		// @TODO: batch?
 		foreach ( $sqlQueries as $sqlQuery ) {
@@ -236,7 +234,7 @@ class WDQManager {
 			);
 		} elseif ( $type === 'time' ) {
 			$time = $mainSnak['datavalue']['value']['time'];
-			$tsUnix = WDQUtils::getUnixTimeFromISO8601( $time ); // for range queries
+			$tsUnix = WdqUtils::getUnixTimeFromISO8601( $time ); // for range queries
 			if ( $tsUnix !== false ) {
 				$dvEdge = array(
 					'class'   => 'HPwTV',
@@ -256,7 +254,7 @@ class WDQManager {
 				'toClass' => 'Property'
 			);
 		} elseif ( $type === 'globecoordinate' ) {
-			$dvEdge = WDQUtils::normalizeGeoCoordinates( array(
+			$dvEdge = WdqUtils::normalizeGeoCoordinates( array(
 				'class'   => 'HPwCV',
 				'lat'     => (float) $mainSnak['datavalue']['value']['latitude'],
 				'lon'     => (float) $mainSnak['datavalue']['value']['longitude'],
@@ -299,15 +297,7 @@ class WDQManager {
 	 * @param string|in $id 64-bit integer
 	 */
 	public function deleteItemPropertyEdges( $id ) {
-		$rid = null;
-		$res = $this->tryCommand( "select @RID from Item where id=$id" );
-		foreach ( $res as $record ) {
-			$rid = $record->data->RID->getHash();
-			if ( $rid[0] !== '#' ) {
-				throw new Exception( "Bad RID '$rid'." );
-			}
-		}
-		$this->tryCommand( "delete edge from $rid to (select expand(out()) from $rid)" );
+		$this->tryCommand( "delete edge from (select Item where id=$id)" );
 	}
 
 	/**

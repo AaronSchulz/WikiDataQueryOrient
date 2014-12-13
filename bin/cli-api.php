@@ -1,7 +1,7 @@
 <?php
 
 require_once( __DIR__ . '/../lib/OrientDB-PHP-master/OrientDB/OrientDB.php' );
-require_once( __DIR__ . '/../lib/WDQFunctions.php' );
+require_once( __DIR__ . '/../lib/autoload.php' );
 
 $user = 'guest';
 $password = 'guest';
@@ -21,7 +21,7 @@ while ( true ) {
 		}
 		$query .= $line;
 	}
-	$sql = WDQEasyQuery::parse( $query );
+	$sql = WdqQueryParser::parse( $query );
 	print( "WDQ -> SQL:\n$sql\n\n" );
 	$count = 0;
 	print( "Running...\n" );

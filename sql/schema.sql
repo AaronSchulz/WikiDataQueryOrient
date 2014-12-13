@@ -13,6 +13,7 @@ create database remote:localhost/WikiData root root plocal graph;
 -- Item pages (Q entity)
 create class Item extends V;
 create property Item.id long;
+alter property Item.id MANDATORY true;
 -- Store site links as a map of <site> => <site>#<title>
 create property Item.sitelinks EMBEDDEDMAP string;
 -- Store the IDs of properties and items referenced
@@ -29,6 +30,7 @@ create index ItemIidsIdx on Item (iids,id) notunique;
 -- Property pages (P entity)
 create class Property extends V;
 create property Property.id long;
+alter property Property.id MANDATORY true;
 -- See See http://www.wikidata.org/wiki/Special:ListDatatypes
 create property Property.datatype string;
 -- P codes are unique

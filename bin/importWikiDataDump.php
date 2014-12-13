@@ -1,8 +1,7 @@
 <?php
 
 require_once( __DIR__ . '/../lib/OrientDB-PHP-master/OrientDB/OrientDB.php' );
-require_once( __DIR__ . '/../lib/WDQFunctions.php' );
-require_once( __DIR__ . '/../lib/WDQManager.php' );
+require_once( __DIR__ . '/../lib/autoload.php' );
 
 error_reporting( E_ALL );
 ini_set( 'memory_limit', '256M' );
@@ -89,30 +88,30 @@ function main() {
 	$db = new OrientDB( 'localhost', 2424 );
 	$db->connect( $user, $password );
 	$db->DBOpen( 'WikiData', 'admin', 'admin' );
-	$gmr = new WDQManager( $db );
+	$updater = new WdqUpdater( $db );
 
 	# Pass 1; load in all vertexes
 	if ( $phase === 'vertexes' ) {
 		iterateJsonDump( $dump, $modulo, $posFile,
-			function( $item ) use ( $gmr, $method ) {
+			function( $item ) use ( $updater, $method ) {
 				if ( $item['type'] === 'item' ) {
 					print( 'Importing vertex for Item ' . $item['id'] . " ($method)\n" );
-					$gmr->importItemVertex( $item, $method );
+					$updater->importItemVertex( $item, $method );
 				} elseif ( $item['type'] === 'property' ) {
 					print( 'Importing vertex for Property ' . $item['id'] . " ($method)\n" );
-					$gmr->importPropertyVertex( $item, $method );
+					$updater->importPropertyVertex( $item, $method );
 				}
 			}
 		);
 	# Pass 2: establish all edges between vertexes
 	} elseif ( $phase === 'edges' ) {
 		iterateJsonDump( $dump, $modulo, $posFile,
-			function( $item, $count ) use ( $gmr, $method ) {
+			function( $item, $count ) use ( $updater, $method ) {
 				if ( $item['type'] === 'item' ) {
 					// Restarting might redo the first item; preserve idempotence
 					$safeMethod = ( $count == 1 ) ? 'rebuild' : $method;
 					print( 'Importing edges for Item ' . $item['id'] . " ($safeMethod)\n" );
-					$gmr->importItemPropertyEdges( $item, $safeMethod );
+					$updater->importItemPropertyEdges( $item, $safeMethod );
 				}
 			}
 		);

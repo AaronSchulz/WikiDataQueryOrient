@@ -1,121 +1,15 @@
 <?php
 
-class WDQUtils {
-	/**
-	 * @param string $code
-	 * @return string integer
-	 */
-	public static function wdcToLong( $code ) {
-		$int = substr( $code, 1 ); // strip the Q/P/L
-		if ( !preg_match( '/^\d+$/', $int ) ) {
-			throw new Exception( "Invalid code '$code'." );
-		}
-		return $int;
-	}
-
-	/**
-	 * Handle dates like -20001-01-01T00:00:00Z and +20001-01-01T00:00:00Z
-	 *
-	 * @param string $time
-	 * @return string|bool 64-bit UNIX timestamp or false on failure
-	 */
-	public static function getUnixTimeFromISO8601( $time ) {
-		$m = array();
-		$ok = preg_match( '#^(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z#', $time, $m );
-		if ( !$ok ) {
-			trigger_error( "Got unparsable date '$time'." );
-			return false;
-		}
-
-		list( , $sign, $year, $month, $day, $hour, $minute, $second ) = $m;
-		$year = ( $sign === '-' ) ? -(int)$year : (int)$year;
-
-		$date = new DateTime();
-		try {
-			$date->setDate( $year, (int)$month, (int)$day );
-			$date->setTime( (int)$hour, (int)$minute, (int)$second );
-		} catch ( Exception $e ) {
-			trigger_error( "Got unparsable date '$time'." );
-			return false;
-		}
-
-		return $date->format( 'U' );
-	}
-
-	/**
-	 * @see http://www.satsig.net/lat_long.htm
-	 * @param array $coords Map of (lat,lon)
-	 * @return array|null
-	 */
-	public static function normalizeGeoCoordinates( array $coords ) {
-		// We could wrap around huge values, but they might be broken anyway
-		if ( $coords['lat'] > 180 || $coords['lat'] < -180 ) {
-			return null;
-		} elseif ( $coords['lon'] > 360 || $coords['lon'] < -360 ) {
-			return null;
-		}
-		// Wrap around lat coordinates over 90deg or under -90deg
-		if ( $coords['lat'] > 90 || $coords['lat'] < -90 ) {
-			$sign = ( $coords['lat'] >= 0 ) ? 1 : -1; // +/1 = N/S
-			$coords['lat'] = $sign * ( 90 - abs( $coords['lat'] ) % 90 );
-		}
-		// Wrap around lon coordinates over 180deg or under -180deg
-		if ( $coords['lon'] > 180 || $coords['lon'] < -180 ) {
-			$sign = ( $coords['lon'] >= 0 ) ? 1 : -1; // +/- = E/W
-			$coords['lon'] = -$sign * ( 180 - abs( $coords['lon'] ) % 180 );
-		}
-
-		return $coords;
-	}
-
-	/**
-	 * Take an arbitrarily nested array and turn it into JSON
-	 *
-	 * @param array $array
-	 * @return string
-	 */
-	public static function toJSON( array $array ) {
-		$json = json_encode( $array );
-		if ( strpos( $json, '\\\\' ) !== false ) {
-			// https://github.com/orientechnologies/orientdb/issues/2424
-			$json = json_encode( self::mangleBacklashes( $array ) );
-		}
-		return $json;
-	}
-
-	/**
-	 * @param array $array
-	 * @return array
-	 */
-	protected static function mangleBacklashes( array $array ) {
-		foreach ( $array as $key => &$value ) {
-			if ( is_array( $value ) ) {
-				$value = self::mangleBacklashes( $value );
-			} elseif ( is_string( $value ) ) {
-				$ovalue = $value;
-				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
-				$value = rtrim( $value, '\\' ); // avoid exceptions
-				// XXX: https://github.com/orientechnologies/orientdb/issues/3151
-				$value = str_replace( '\u', 'u', $value ); // avoid exceptions
-				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
-				#$value = str_replace( '\\', '\\\\', $value ); // orient double unescapes
-				if ( $value !== $ovalue ) {
-					print( "JSON: converted value '$ovalue' => '$value'.\n" );
-				}
-			}
-		}
-		unset( $value );
-		return $array;
-	}
-}
-
 /**
  * Easy to use abstract query language helper
  *
  * Example query:
  * SELECT id,claim FROM
- * DIFFERENCE(
- * 	{HPwIVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
+ * UNION(
+ *  DIFFERENCE (
+ *		{HPwIVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
+ *		{HPwQV[X:A,B,-C TO D] DESC LIMIT(100)}
+ *  )
  * 	UNION(
  * 		{HPwIV[X:A,B,C] WHERE(HPwIV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y]))}
  * 		{HPwQV[X:A,B,-C TO D] QUALIFY(HPwTV[P,X,Y])}
@@ -125,6 +19,7 @@ class WDQUtils {
  * 			{HPwIV[X:Y]}
  * 			{HPwIVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
  * 		)
+ * 		{HPwQV[X:Y TO Z] ASC RANK(preferred) LIMIT(10)}
  * 		{HPwIVTree[X:Y] QUALIFY(HPwQV[X:Y]) AND (HPwQV[X:Y] OR HPwQV[X:Y])) WHERE(link[X,Y])}
  * 	)
  * 	INTERSECT(
@@ -134,7 +29,7 @@ class WDQUtils {
  * 	)
  * )
  */
-class WDQEasyQuery {
+class WdqQueryParser {
 	const RE_FLOAT = '[-+]?[0-9]*\.?[0-9]+';
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
 
@@ -262,15 +157,15 @@ class WDQEasyQuery {
 		if ( preg_match( "/^(HP|HPwNoV|HPwSomeV)\[($dlist)\]\s*/", $s, $m ) ) {
 			$class = $m[1];
 			$pIds = explode( ',', $m[2] );
-			$orClause = self::makeORClause( 'id', $pIds );
-			$sql = "SELECT expand(in($class)) FROM Property WHERE ($orClause)";
+			$inClause = self::makeINClause( 'id', $pIds );
+			$sql = "SELECT expand(in($class)) FROM Property WHERE ($inClause)";
 			$qualiferPrefix = "out.claims[in.id.prefix('P')][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$iIds = explode( ',', $m[2] );
-			$orClause = self::makeORClause( 'in.id', $iIds );
-			$sql = "SELECT out,oid FROM HPwIV WHERE pid=$pId AND ($orClause)";
+			$inClause = self::makeINClause( 'in.id', $iIds );
+			$sql = "SELECT out,oid FROM HPwIV WHERE pid=$pId AND ($inClause)";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
@@ -280,8 +175,8 @@ class WDQEasyQuery {
 			foreach ( $valIds as $valId ) {
 				$vals[] = self::unstripQuotedStrings( $valId, $map );
 			}
-			$orClause = self::makeORClause( 'val', $vals );
-			$sql = "SELECT out,oid FROM HPwSV WHERE in.id=$pId AND ($orClause)";
+			$inClause = self::makeINClause( 'val', $vals );
+			$sql = "SELECT out,oid FROM HPwSV WHERE in.id=$pId AND ($inClause)";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^HPwQV\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
@@ -312,8 +207,8 @@ class WDQEasyQuery {
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
 			$iIds = explode( ',', $m[1] );
-			$orClause = self::makeORClause( 'id', $iIds );
-			$sql = "SELECT FROM Item WHERE ($orClause)";
+			$inClause = self::makeINClause( 'id', $iIds );
+			$sql = "SELECT FROM Item WHERE ($inClause)";
 			$qualiferPrefix = null; // makes no sense
 			$filterPrefix = "";
 		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
@@ -341,30 +236,30 @@ class WDQEasyQuery {
 				$tfields[] = 'HPwIV.in';
 				// Edges followed in forwards direction are filtered on certain PIDs
 				$whileCond[] = '(out=$parent.$current AND (' .
-					self::makeORClause( 'pid', $pIdsFD ) . '))';
+					self::makeINClause( 'pid', $pIdsFD ) . '))';
 			}
 			if ( $pIdsRV ) {
 				$tfields[] = 'Item.in_HPwIV';
 				$tfields[] = 'HPwIV.out';
 				// Edges followed in reverse direction are filtered on certain PIDs
 				$whileCond[] = '(in=$parent.$current AND (' .
-					self::makeORClause( 'pid', $pIdsRV ) . '))';
+					self::makeINClause( 'pid', $pIdsRV ) . '))';
 			}
 			$tfields = implode( ',', $tfields );
 			$whileCond = implode( ' OR ', $whileCond );
 
-			$orClause = self::makeORClause( 'id', $iIds );
+			$inClause = self::makeINClause( 'id', $iIds );
 			if ( $tfields ) {
 				$sql = <<<EOD
 SELECT FROM (
 	TRAVERSE $tfields
-	FROM (select Item WHERE ($orClause))
+	FROM (select Item WHERE ($inClause))
 	WHILE (@class='Item' OR ($whileCond))
 ) WHERE @class='Item'
 EOD;
 			} else {
 				// Just grab the root items
-				$sql = "SELECT FROM Item WHERE ($orClause)";
+				$sql = "SELECT FROM Item WHERE ($inClause)";
 			}
 			$qualiferPrefix = null; // makes no sense
 			$filterPrefix = "";
@@ -557,14 +452,14 @@ EOD;
 					$where2[] = "{$fldPrefix}claims['P$pId'].datavalue.value.time=$val";
 				} elseif ( preg_match( "/^\w+ TO \w+$/", $val, $m ) ) {
 					list( , $a, $b ) = $m;
-					$a = WDQUtils::getUnixTimeFromISO8601( $a );
-					$b = WDQUtils::getUnixTimeFromISO8601( $a );
+					$a = WdqUtils::getUnixTimeFromISO8601( $a );
+					$b = WdqUtils::getUnixTimeFromISO8601( $a );
 					if ( $a === false || $b === false ) {
 						throw new ParseException( "Unparsable timestamps: $val" );
 					}
 					$where2[] = "{$fldPrefix}claims['P$pId'].datavalue.value.time BETWEEN $a AND $b";
 				} elseif ( preg_match( "/^$float$/", $val ) ) {
-					$val = WDQUtils::getUnixTimeFromISO8601( $val );
+					$val = WdqUtils::getUnixTimeFromISO8601( $val );
 					if ( $val === false ) {
 						throw new ParseException( "Unparsable timestamps: $val" );
 					}
@@ -620,7 +515,7 @@ EOD;
 		}
 
 		if ( $in ) {
-			$where[] = self::makeORClause( $field, $in );
+			$where[] = self::makeINClause( $field, $in );
 		}
 
 		if ( !$where ) {
@@ -664,12 +559,9 @@ EOD;
 	 * @param array $vals
 	 * @return string
 	 */
-	protected static function makeORClause( $field, array $vals ) {
-		$orWhere = array();
-		foreach ( $vals as $val ) {
-			$orWhere[] = "$field=$val";
-		}
-		return implode( ' OR ', $orWhere );
+	protected static function makeINClause( $field, array $vals ) {
+		// https://github.com/orientechnologies/orientdb/issues/3150
+		return "$field IN [" . implode( ',', $vals ) . "]";
 	}
 
 	/**
