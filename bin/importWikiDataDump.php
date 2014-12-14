@@ -6,7 +6,11 @@ require_once( __DIR__ . '/../lib/autoload.php' );
 error_reporting( E_ALL );
 ini_set( 'memory_limit', '256M' );
 
-function iterateJsonDump( $dump, $modulo, $posFile, callable $callback ) {
+function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback ) {
+	list( $mDiv, $mRem ) = $modParams;
+	$mDiv = (int)$mDiv;
+	$mRem = (int)$mRem;
+
 	# Pick up from any prior position
 	if ( $posFile && is_file( $posFile ) ) {
 		$content = trim( file_get_contents( $posFile ) );
@@ -35,7 +39,7 @@ function iterateJsonDump( $dump, $modulo, $posFile, callable $callback ) {
 			$started = true;
 			$pos = $after;
 		}
-		$itemCount = 0;
+		$itemCount = 0; // items processed this run
 		while ( ( $line = fgets( $handle ) ) !== false ) {
 			++$pos;
 			$offset += (float) strlen( $line );
@@ -47,7 +51,7 @@ function iterateJsonDump( $dump, $modulo, $posFile, callable $callback ) {
 			if ( $line === '[' || $line === ',' || $line === ']' ) {
 				continue;
 			}
-			if ( $line % $modulo == 0 ) {
+			if ( ( $pos % $mDiv ) == $mRem ) {
 				$item = json_decode( $line, true );
 				if ( $item === null ) {
 					throw new Exception( "Got bad JSON line:\n$line\n" );
@@ -80,10 +84,20 @@ function main() {
 	$method = isset( $options['method'] )
 		? $options['method']
 		: ( $phase === 'vertexes' ? 'upsert' : 'rebuild' );
-	$modulo = isset( $options['modulo'] ) ? $options['modulo'] : 1;
+	$modulo = isset( $options['modulo'] ) // 4,1 means (object# % 4 = 1)
+		? $options['modulo']
+		: '1,0';
 	$posFile = isset( $options['posdir'] )
 		? "{$options['posdir']}/$phase-$method-$modulo.pos"
 		: null;
+	$modParams = explode( ',', $modulo );
+	if ( count( $modParams ) != 2 ) {
+		die( "Bad --modulo parameter '$modulo'.\n" );
+	}
+
+	if ( $posFile !== null ) {
+		print( "Using position file: $posFile\n" );
+	}
 
 	$db = new OrientDB( 'localhost', 2424 );
 	$db->connect( $user, $password );
@@ -92,7 +106,7 @@ function main() {
 
 	# Pass 1; load in all vertexes
 	if ( $phase === 'vertexes' ) {
-		iterateJsonDump( $dump, $modulo, $posFile,
+		iterateJsonDump( $dump, $modParams, $posFile,
 			function( $item ) use ( $updater, $method ) {
 				if ( $item['type'] === 'item' ) {
 					print( 'Importing vertex for Item ' . $item['id'] . " ($method)\n" );
@@ -105,7 +119,7 @@ function main() {
 		);
 	# Pass 2: establish all edges between vertexes
 	} elseif ( $phase === 'edges' ) {
-		iterateJsonDump( $dump, $modulo, $posFile,
+		iterateJsonDump( $dump, $modParams, $posFile,
 			function( $item, $count ) use ( $updater, $method ) {
 				if ( $item['type'] === 'item' ) {
 					// Restarting might redo the first item; preserve idempotence

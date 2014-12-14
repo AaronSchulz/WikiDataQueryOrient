@@ -3,7 +3,7 @@ WikiDataQueryOrient
 
 Importing scripts and query helper classes for storing WikiData information in OrientDB
 
-*** DB Schema Initialization Stuff ***
+*** DB schema and server setup ***
 
 1)	Get OrientDB 2.0 (M3)
 
@@ -31,10 +31,12 @@ Importing scripts and query helper classes for storing WikiData information in O
 9)	Grab a JSON dump file from http://dumps.wikimedia.org/other/wikidata/
     and store it somewhere (e.g. F:/importer/data).
 
-10) Import vertexes:
+*** Importing data ***
+
+1) Import vertexes:
 	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase vertexes --user root --password root --posfile=pos/lastv.pos --method=insert
 
-11) Import edges:
+2) Import edges:
 	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase edges --user root --password root --posfile=pos/laste.pos --method=bulk_init
 
 *** Updating via API ***
