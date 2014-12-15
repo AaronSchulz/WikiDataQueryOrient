@@ -253,7 +253,7 @@ class WdqQueryParser {
 				$sql = <<<EOD
 SELECT FROM (
 	TRAVERSE $tfields
-	FROM (select Item WHERE ($inClause))
+	FROM (select FROM Item WHERE ($inClause))
 	WHILE (@class='Item' OR ($whileCond))
 ) WHERE @class='Item'
 EOD;

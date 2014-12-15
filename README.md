@@ -43,7 +43,9 @@ Importing scripts and query helper classes for storing WikiData information in O
 
 All of this is very unfinished and WIP :)
 
-php updateWdqGraphViaFeed.php --user root --password root --start 20141124000000 --posfile=pos/lastchangetime.pos
+1) Make sure at least all vertexes of a dump are finished being added
+
+2) php updateWdqGraphViaFeed.php --user root --password root
 
 *** Connecting ***
 

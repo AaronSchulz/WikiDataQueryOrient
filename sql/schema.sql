@@ -2,11 +2,7 @@
 -- 1) 'rank' fields use the system: (-1=deprecated, 0=normal, 1=preferred).
 -- 2) 'best' fields are 0 or 1 (1 if 'rank' is >= max rank of item statements for that property).
 -- 3) 'sid' fields identify a statement ID, making it easy to reference in the full JSON.
--- 4) Unique keys may result in one edge for multiple statements, possible qualified differently.
---    This should not matter as long the rank and value are in the unique key. The point of edges
---    is for traversal and indexing so that entities can be found. The JSON documents in Item and
---    Property can be directly queried for additional filtering (e.g. on qualifier).
--- 5) oid/iid are denormalized out.id/in.id to avoid network I/O.
+-- 4) oid/iid are denormalized out.id/in.id to avoid network I/O.
 
 create database remote:localhost/WikiData root root plocal graph;
 
@@ -118,3 +114,9 @@ create property HPwCV.oid long;
 create property HPwCV.iid long;
 create property HPwCV.sid string;
 create index HPwCVLocGeoIdx on HPwCV (lat, lon) spatial engine LUCENE;
+
+-- Metadata table for tracking DB status info (e.g. for feed updates)
+create class DBStatus;
+create property DBStatus.name string;
+alter property DBStatus.name MANDATORY true;
+create index DBStatusNameIdx on DBStatus (name) unique;
