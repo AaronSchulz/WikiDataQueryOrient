@@ -2,10 +2,13 @@
 
 require_once( __DIR__ . '/../lib/autoload.php' );
 
+$queries[] = 'SELECT (id) FROM {HP[279] LIMIT(5)}';
+$queries[] = 'SELECT (id) FROM {HP[31,279] LIMIT(5)}';
+$queries[] = 'SELECT (id) FROM {HPwIV[31:5] LIMIT(5)}';
 $queries[] = 'SELECT (id) FROM {items[1339,350,34,64,747,24242,636,3] WHERE(haslinks["enwiki"])}';
 $queries[] = 'SELECT (id) FROM {linkedto["enwiki#Universe"]}';
-$queries[] = 'SELECT (id,sitelinks["enwiki"]) FROM {HP[175,275,35757]}';
-$queries[] = 'SELECT (id) FROM {HPwSomeV[1,2,3]}';
+$queries[] = 'SELECT (id,sitelinks["enwiki"]) FROM {HP[175,275,757]}';
+$queries[] = 'SELECT (id) FROM {HPwSomeV[1036,237]}';
 $queries[] = 'SELECT (id) FROM {HPwNoV[1,2,3] RANK(best)}';
 $queries[] = 'SELECT (id) FROM {HPwIV[31:1,2,3]}';
 $queries[] = 'SELECT (id) FROM {HPwQV[31:1,-10000 TO 3000000] ASC}';

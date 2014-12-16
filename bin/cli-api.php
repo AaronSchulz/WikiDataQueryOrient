@@ -22,7 +22,7 @@ while ( true ) {
 		$query .= $line;
 	}
 	$sql = WdqQueryParser::parse( $query );
-	print( "WDQ -> SQL:\n$sql\n\n" );
+	print( "WDQ -> OrientSQL:\n$sql\n\n" );
 	$count = 0;
 	print( "Running...\n" );
 	$res = $db->command( OrientDB::COMMAND_SELECT_ASYNC, $sql );

@@ -158,14 +158,14 @@ class WdqQueryParser {
 			$class = $m[1];
 			$pIds = explode( ',', $m[2] );
 			$inClause = self::makeINClause( 'id', $pIds );
-			$sql = "SELECT expand(in($class)) FROM Property WHERE ($inClause)";
+			$sql = "SELECT expand(in($class)) FROM Property WHERE $inClause";
 			$qualiferPrefix = "out.claims[in.id.prefix('P')][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$iIds = explode( ',', $m[2] );
-			$inClause = self::makeINClause( 'in.id', $iIds );
-			$sql = "SELECT out,oid FROM HPwIV WHERE pid=$pId AND ($inClause)";
+			$inClause = self::makeINClause( 'iid', $iIds );
+			$sql = "SELECT expand(out) FROM HPwIV WHERE pid=$pId AND $inClause";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
@@ -176,24 +176,15 @@ class WdqQueryParser {
 				$vals[] = self::unstripQuotedStrings( $valId, $map );
 			}
 			$inClause = self::makeINClause( 'val', $vals );
-			$sql = "SELECT out,oid FROM HPwSV WHERE in.id=$pId AND ($inClause)";
+			$sql = "SELECT expand(out) FROM HPwSV WHERE iid=$pId AND $inClause";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
-		} elseif ( preg_match( "/^HPwQV\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
-			$pId = $m[1];
-			$where = self::parseRangeDive( 'val', $m[2] );
-			$order = isset( $m[3] ) ? $m[3] : null;
-			$sql = "SELECT out,oid FROM HPwQV WHERE in.id=$pId AND $where";
-			if ( $order ) {
-				$sql .= " ORDER BY val $order";
-			}
-			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
-			$filterPrefix = "out.";
-		} elseif ( preg_match( "/^HPwTV\[(\d+):([^\]]+)\]\s*(ASC|DESC)?/", $s, $m ) ) {
-			$pId = $m[1];
-			$where = self::parseRangeDive( 'val', $m[2] );
-			$order = isset( $m[3] ) ? $m[3] : null;
-			$sql = "SELECT out,oid FROM HPwTV WHERE in.id=$pId AND $where";
+		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
+			$class = $m[1];
+			$pId = $m[2];
+			$where = self::parseRangeDive( 'val', $m[3] );
+			$order = isset( $m[4] ) ? $m[4] : null;
+			$sql = "SELECT expand(out) FROM $class WHERE iid=$pId AND $where";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
@@ -202,13 +193,13 @@ class WdqQueryParser {
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$where = self::parseAroundDive( $m[2] );
-			$sql = "SELECT out,oid FROM HPwCV WHERE in.id=$pId AND $where";
+			$sql = "SELECT expand(out) FROM HPwCV WHERE iid=$pId AND $where";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::makeINClause( 'id', $iIds );
-			$sql = "SELECT FROM Item WHERE ($inClause)";
+			$sql = "SELECT FROM Item WHERE $inClause";
 			$qualiferPrefix = null; // makes no sense
 			$filterPrefix = "";
 		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
@@ -253,7 +244,7 @@ class WdqQueryParser {
 				$sql = <<<EOD
 SELECT FROM (
 	TRAVERSE $tfields
-	FROM (select FROM Item WHERE ($inClause))
+	FROM (select FROM Item WHERE $inClause)
 	WHILE (@class='Item' OR ($whileCond))
 ) WHERE @class='Item'
 EOD;
@@ -561,7 +552,9 @@ EOD;
 	 */
 	protected static function makeINClause( $field, array $vals ) {
 		// https://github.com/orientechnologies/orientdb/issues/3150
-		return "$field IN [" . implode( ',', $vals ) . "]";
+		return count( $vals ) == 1
+			? "$field=" . $vals[0]
+			: "$field IN [" . implode( ',', $vals ) . "]";
 	}
 
 	/**

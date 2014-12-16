@@ -68,7 +68,7 @@ create property HPwIV.best short;
 create property HPwIV.oid long;
 create property HPwIV.iid long;
 create property HPwIV.sid string;
-create index HPwIVPidInOutIdx on HPwIV (pid, in, out) notunique;
+create index HPwIVIidPidIdx on HPwIV (iid, pid) notunique;
 
 create class HPwQV extends E;
 create property HPwQV.out LINK Item;
@@ -79,7 +79,7 @@ create property HPwQV.best short;
 create property HPwQV.oid long;
 create property HPwQV.iid long;
 create property HPwQV.sid string;
-create index HPwQVInValOutIdx on HPwQV (in, val, out) notunique;
+create index HPwQVIidValIdx on HPwQV (iid, val) notunique;
 
 create class HPwSV extends E;
 create property HPwSV.out LINK Item;
@@ -90,7 +90,7 @@ create property HPwSV.best short;
 create property HPwSV.oid long;
 create property HPwSV.iid long;
 create property HPwSV.sid string;
-create index HPwSVInValIdx on HPwSV (in, val) notunique_hash_index;
+create index HPwSVIidValIdx on HPwSV (iid, val) notunique_hash_index;
 
 create class HPwTV extends E;
 create property HPwTV.out LINK Item;
@@ -101,7 +101,7 @@ create property HPwTV.best short;
 create property HPwTV.oid long;
 create property HPwTV.iid long;
 create property HPwTV.sid string;
-create index HPwTVInValOutIdx on HPwTV (in, val, out) notunique;
+create index HPwTVIidValIdx on HPwTV (iid, val) notunique;
 
 create class HPwCV extends E;
 create property HPwCV.out LINK Item;
