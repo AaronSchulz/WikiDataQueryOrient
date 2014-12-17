@@ -297,16 +297,7 @@ class WdqUpdater {
 	 * @param string|in $id 64-bit integer
 	 */
 	public function deleteItemPropertyEdges( $id ) {
-		// https://github.com/orientechnologies/orientdb/issues/3185
-		#$this->tryCommand( "delete edge from (select from Item where id=$id)" );
-		$rid = null;
-		$res = $this->tryCommand( "select @RID from Item where id=$id" );
-		foreach ( $res as $record ) {
-			$rid = $record->data->RID->getHash();
-		}
-		if ( $rid !== null ) {
-			$this->tryCommand( "delete edge from $rid to (select expand(out()) from $rid)" );
-		}
+		$this->tryCommand( "delete edge from (select from Item where id=$id)" );
 	}
 
 	/**

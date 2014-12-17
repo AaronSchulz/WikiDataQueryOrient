@@ -164,19 +164,26 @@ class WdqQueryParser {
 		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$iIds = explode( ',', $m[2] );
-			$inClause = self::makeINClause( 'iid', $iIds );
-			$sql = "SELECT expand(out) FROM HPwIV WHERE pid=$pId AND $inClause";
+			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
+			$orClause = array();
+			foreach ( $iIds as $iId ) {
+				$orClause[] = "(iid=$iId AND pid=$pId)";
+			}
+			$orClause = implode( ' OR ', $orClause );
+			$sql = "SELECT expand(out) FROM HPwIV WHERE ($orClause)";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$valIds = explode( ',', $m[2] );
-			$vals = array();
+			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
+			$orClause = array();
 			foreach ( $valIds as $valId ) {
-				$vals[] = self::unstripQuotedStrings( $valId, $map );
+				$val = self::unstripQuotedStrings( $valId, $map );
+				$orClause[] = "(iid=$pId AND val=$val)";
 			}
-			$inClause = self::makeINClause( 'val', $vals );
-			$sql = "SELECT expand(out) FROM HPwSV WHERE iid=$pId AND $inClause";
+			$orClause = implode( ' OR ', $orClause );
+			$sql = "SELECT expand(out) FROM HPwSV WHERE ($orClause)";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 			$filterPrefix = "out.";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
@@ -600,9 +607,10 @@ EOD;
 		$pos = 0;
 		$map = array();
 		$s = preg_replace_callback(
-			array( '/"([^"]*)"/Um', "/'([^']*)'/Um" ),
+			array( '/"((?:[^"]|\\\\")*)"/m', "/'((?:[^']|\\\\')*)'/m" ),
 			function( array $m ) use ( &$pos, &$map ) {
 				++$pos;
+				$val = stripcslashes( $m[1] );
 				// https://github.com/orientechnologies/orientdb/issues/1275
 				$map['$' . $pos] = "'" . addcslashes( $m[1], "'" ) . "'";
 				return '$' . $pos;
