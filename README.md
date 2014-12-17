@@ -29,10 +29,10 @@ Importing scripts and query helper classes for storing WikiData information in O
 *** Importing data ***
 
 1) Import vertexes:
-	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase vertexes --user root --password root --posdir=pos --method=insert
+	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase vertexes --user root --password root --method=insert --posdir=F:/importer/data/pos
 
 2) Import edges:
-	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase edges --user root --password root --posdir=pos --method=bulk_init
+	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase edges --user root --password root --method=bulk_init --posdir=F:/importer/data/pos
 
 *** Updating via API ***
 
@@ -42,6 +42,10 @@ All of this is very unfinished and WIP :)
 
 2) php updateWdqGraphViaFeed.php --user root --password root
 
-*** Connecting ***
+*** Console ***
 
 connect remote:127.0.0.1/WikiData admin admin
+
+*** Gremlin ***
+
+g = new OrientGraph("remote:127.0.0.1/WikiData");

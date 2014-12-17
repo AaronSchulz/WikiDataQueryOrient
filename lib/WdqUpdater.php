@@ -33,6 +33,8 @@ class WdqUpdater {
 			foreach ( $item['claims'] as $propertyId => $statements ) {
 				foreach ( $statements as $statement ) {
 					$claims[$propertyId][$statement['id']] = $statement;
+					// Remove redundant field to save space
+					unset( $claims[$propertyId][$statement['id']]['id'] );
 				}
 			}
 		}
@@ -65,13 +67,13 @@ class WdqUpdater {
 
 		foreach ( $claims as $propertyId => $statements ) {
 			$pid = WdqUtils::wdcToLong( $propertyId );
-			$refs['pids'][] = $pid;
+			$refs['pids'][] = (float)$pid;
 			foreach ( $statements as $statement ) {
 				$mainSnak = $statement['mainsnak'];
 				if ( $mainSnak['snaktype'] === 'value' &&
 					$mainSnak['datavalue']['type'] === 'wikibase-entityid'
 				) {
-					$refs['iids'][] = $mainSnak['datavalue']['value']['numeric-id'];
+					$refs['iids'][] = (float)$mainSnak['datavalue']['value']['numeric-id'];
 				}
 			}
 		}
@@ -279,16 +281,26 @@ class WdqUpdater {
 	 * @param string|int|array $ids 64-bit integers
 	 */
 	public function deleteItemVertexes( $ids ) {
-		$ids = (array)$ids;
-		$this->tryCommand( "delete vertex Item where id in(" . implode( ',', $ids ) . ")" );
+		// https://github.com/orientechnologies/orientdb/issues/3150
+		$orClause = array();
+		foreach ( (array)$ids as $id ) {
+			$orClause[] = "id='$id'";
+		}
+		$orClause = implode( ' OR ', $orClause );
+		$this->tryCommand( "delete vertex Item where ($orClause)" );
 	}
 
 	/**
 	 * @param string|int|array $ids 64-bit integers
 	 */
 	public function deletePropertyVertexes( $ids ) {
-		$ids = (array)$ids;
-		$this->tryCommand( "delete vertex Property where id in(" . implode( ',', $ids ) . ")" );
+		// https://github.com/orientechnologies/orientdb/issues/3150
+		$orClause = array();
+		foreach ( (array)$ids as $id ) {
+			$orClause[] = "id='$id'";
+		}
+		$orClause = implode( ' OR ', $orClause );
+		$this->tryCommand( "delete vertex Property where ($orClause)" );
 	}
 
 	/**

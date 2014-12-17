@@ -4,6 +4,7 @@ require_once( __DIR__ . '/../lib/autoload.php' );
 
 $queries[] = 'SELECT (id) FROM {HP[279] LIMIT(5)}';
 $queries[] = 'SELECT (id) FROM {HP[31,279] LIMIT(5)}';
+$queries[] = 'SELECT (id) FROM {HPwIV[31:2590631] LIMIT(5)}';
 $queries[] = 'SELECT (id) FROM {HPwIV[31:5] LIMIT(5)}';
 $queries[] = 'SELECT (id) FROM {items[1339,350,34,64,747,24242,636,3] WHERE(haslinks["enwiki"])}';
 $queries[] = 'SELECT (id) FROM {linkedto["enwiki#Universe"]}';

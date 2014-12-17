@@ -46,7 +46,7 @@ function main() {
 	// page deletes: log entry at target
 	// page restores: log entry at target
 
-	// @note: if RC limit is too high, the text query afterwards will be missing
+	// @note: if "rclimit" is too high, the text query afterwards will be missing
 	// items due to the hard-coded server-size limit of 20 revisions per query.
 	$baseQuery = array(
 		'action' => 'query', 'list' => 'recentchanges',
@@ -55,20 +55,20 @@ function main() {
 		'format' => 'json', 'continue' => '', 'rcstart' => $sTimestamp
 	);
 
-	$continue = null;
+	$rccontinue = null;
+	$lastTimestamp = $sTimestamp;
 	while ( true ) {
-		if ( $continue ) {
-			$baseQuery['rccontinue'] = $continue;
+		if ( $rccontinue ) {
+			$baseQuery['rccontinue'] = $rccontinue;
 		}
 		$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => $baseQuery );
 
-		print( "Requesting changes from " . API_QUERY_URL . "...($continue)\n" );
+		print( "Requesting changes from " . API_QUERY_URL . "...($rccontinue)\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
 		$result = json_decode( $rbody, true );
 
-		$continue = $result['continue']['rccontinue'];
+		$rccontinue = $result['continue']['rccontinue'];
 
-		$lastTimestamp = $sTimestamp;
 		$changeCount = count( $result['query']['recentchanges'] );
 		$itemsDeleted = array(); // list of Item IDs
 		$propertiesDeleted = array(); // list of Property IDs
@@ -124,15 +124,15 @@ function main() {
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
 		$result = json_decode( $rbody, true );
 
-		$applyChanges = array(); // map of rev ID => (class, json, is new)
+		$applyChanges = array(); // map of rev ID => (json, is new)
 		foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
 			$change = $pageInfo['revisions'][0];
 			list( $ns, $title, $isNew ) = $titlesChanged[$change['revid']];
 			if ( $ns == 0 ) { // Item
-				$applyChanges[$change['revid']] = array( 'Item', $change['*'], $isNew );
+				$applyChanges[$change['revid']] = array( $change['*'], $isNew );
 			} elseif ( $ns == 120 ) { // Property
 				list( $nstext, $key ) = explode( ':', $title, 2 );
-				$applyChanges[$change['revid']] = array( 'Property', $change['*'], $isNew );
+				$applyChanges[$change['revid']] = array( $change['*'], $isNew );
 			}
 		}
 		$applyChangesInOrder = array(); // order should match $titlesChanged
@@ -144,32 +144,35 @@ function main() {
 
 		print( "Updating graph...\n" );
 		foreach ( $applyChangesInOrder as $change ) {
-			list( $class, $json, $isNew ) = $change;
+			list( $json, $isNew ) = $change;
 			$item = json_decode( $json, true );
-			if ( $class === 'Item' ) {
+			if ( isset( $item['entity'] ) && isset( $item['redirect'] ) ) {
+				print( "Ignored entity redirect: $json\n" );
+			} elseif ( $item['type'] === 'item' ) {
 				$id = WdqUtils::wdcToLong( $item['id'] );
-				#$updater->importItemVertex( $item, $isNew ? 'insert' : 'update' );
-				#$updater->importItemPropertyEdges( $item, 'rebuilt' )
-			} elseif ( $class === 'Property' ) {
-				#$updater->importPropertyVertex( $item, $isNew ? 'insert' : 'update' );
+				$updater->importItemVertex( $item, $isNew ? 'insert' : 'update' );
+				$updater->importItemPropertyEdges( $item, 'rebuild' );
+			} elseif ( $item['type'] === 'property' ) {
+				$updater->importPropertyVertex( $item, $isNew ? 'insert' : 'update' );
+			} else {
+				throw new Exception( "Got unkown item '$json'" );
 			}
 		}
 		if ( $itemsDeleted ) {
-			#$updater->deleteItemVertexes( $itemsDeleted );
+			$updater->deleteItemVertexes( $itemsDeleted );
 		}
 		if ( $propertiesDeleted ) {
-			#$updater->deletePropertyVertexes( $itemsDeleted );
+			$updater->deletePropertyVertexes( $itemsDeleted );
 		}
 
 		// Update the replication position
-		#$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
-		#$db->command( OrientDB::COMMAND_QUERY,
-		#	"UPDATE DBMetadata CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
+		$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
+		$db->command( OrientDB::COMMAND_QUERY,
+			"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
 		print( "Updated replication position to $lastTimestamp.\n" );
 
 		if ( $changeCount > 0 ) {
-			usleep( 1e5 );
-		} else {
+			print( "No changes found...\n" );
 			sleep( 1 );
 		}
 	}
@@ -220,8 +223,8 @@ function determineRCPosition( OrientDB $db, MultiHttpClient $http ) {
 					print( "Setting replication timestamp to $cTimestamp.\n" );
 					// Set the initial replication timestamp
 					$row = array( 'name' => 'LastRCInfo', 'rc_timestamp' => $cTimestamp );
-					#$db->command( OrientDB::COMMAND_QUERY,
-					#	"INSERT INTO DBMetadata CONTENT " . json_encode( $row ) );
+					$db->command( OrientDB::COMMAND_QUERY,
+						"INSERT INTO DBStatus CONTENT " . json_encode( $row ) );
 					return $cTimestamp;
 				} else {
 					die( "Got invalid revision timestamp '$timestamp' from the API.\n" );
