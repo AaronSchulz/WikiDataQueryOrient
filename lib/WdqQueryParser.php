@@ -6,7 +6,7 @@
  * Example query:
  * SELECT id,claim FROM
  * UNION(
- *  DIFFERENCE (
+ *  DIFFERENCE(
  *		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
  *		{HPwQV[X:A,B,-C TO D] DESC LIMIT(100)}
  *  )
@@ -19,10 +19,10 @@
  * 			{HIaPV[X:Y]}
  * 			{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
  * 		)
- *      {HIaPV[X:Y] WHERE(NOT(HIaPV[X:A,C,D]))}
+ *      {HIaPV[X:Y] WHERE(NOT (HIaPV[X:A,C,D]))}
  * 		{HPwQV[X:Y TO Z] ASC RANK(preferred) LIMIT(10)}
  * 		{HIaPVTree[X:Y] QUALIFY(HPwQV[X:Y]) AND (HPwQV[X:Y] OR HPwQV[X:Y])) WHERE(link[X,Y])}
- *		{HIaPV[X:Y] QUALIFY(NOT(HIaPV[X:A,C,D]))}
+ *		{HIaPV[X:Y] QUALIFY(NOT (HIaPV[X:A,C,D]))}
  * 	)
  * 	INTERSECT(
  * 		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y] RANK(best)}
@@ -37,7 +37,6 @@ class WdqQueryParser {
 	const FLD_BASIC = '/^(id|claims|sitelinks|labels)$/';
 	const FLD_CMPLX = '/^((?:claims|sitelinks|labels)\[\$\d+\](?:\[sid\])?)\s+AS\s+([a-zA-Z_]+)$/';
 	const FLD_EDGE = '/^(val|sid)$/';
-
 
 	/**
 	 * @param string $s
@@ -64,8 +63,8 @@ class WdqQueryParser {
 		$rest = ltrim( substr( $rest, strlen( $token ) ) );
 		$query = $rest;
 
-		// Validate the properties selected
-		// @note: enforce that [] fields use aliases (they otherwise get called out1, out2...)
+		// Validate the properties selected.
+		// Enforce that [] fields use aliases (they otherwise get called out1, out2...)
 		$proj = array();
 		foreach ( explode( ',', $props ) as $prop ) {
 			$prop = trim( $prop );
@@ -337,9 +336,6 @@ class WdqQueryParser {
 	/**
 	 * Parse things like "HIaPV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y])"
 	 *
-	 * See https://github.com/orientechnologies/orientdb/wiki/SQL-Where
-	 * Lack of "NOT" operator means we'd have to do deMorgan's ourselves.
-	 *
 	 * @param string $s
 	 * @param string $fldPrefix
 	 * @param array $map
@@ -356,7 +352,12 @@ class WdqQueryParser {
 			if ( $rest[0] === '(' ) {
 				$statement = self::consume( $rest , '()' );
 				$where[] = self::parseFilters( $statement, $fldPrefix, $map );
-			} elseif ( preg_match( '/^(AND|OR) /', $rest, $m ) ) {
+			} elseif ( preg_match( '/^(NOT)\s+\(/', $rest, $m ) ) {
+				$operator = $m[1];
+				$rest = substr( $rest, strlen( $m[0] ) - 1 );
+				$statement = self::consume( $rest , '()' );
+				$where[] = 'NOT ' . self::parseFilter( $statement, $fldPrefix, $map );
+			} elseif ( preg_match( '/^(AND|OR)\s/', $rest, $m ) ) {
 				if ( $junction && $m[1] !== $junction ) {
 					// "(A AND B OR C)" is confusing and requires precendence order
 					throw new ParseException( "Unparsable: $s" );
