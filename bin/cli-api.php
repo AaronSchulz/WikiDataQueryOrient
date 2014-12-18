@@ -25,7 +25,10 @@ while ( true ) {
 	print( "WDQ -> OrientSQL:\n$sql\n\n" );
 	$count = 0;
 	print( "Running...\n" );
+	$start = microtime( true );
 	$res = $db->command( OrientDB::COMMAND_SELECT_ASYNC, $sql );
+	$elapsed = ( microtime( true ) - $start );
+	print( "Done in $elapsed seconds...\n" );
 	if ( $res === false ) {
 		// no results?
 	} else {

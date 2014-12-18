@@ -111,8 +111,9 @@ class WdqUpdater {
 	 *
 	 * @param array $item
 	 * @param string $method (rebuild/bulk)
+	 * @param array|null $classes Only do certain edge classes
 	 */
-	public function importItemPropertyEdges( array $item, $method ) {
+	public function importItemPropertyEdges( array $item, $method, array $classes = null ) {
 		if ( !isset( $item['claims'] ) ) {
 			return; // nothing to do
 		}
@@ -191,16 +192,20 @@ class WdqUpdater {
 
 		// Destroy all prior outgoing edges
 		if ( $method !== 'bulk_init' ) {
-			$this->deleteItemPropertyEdges( $qId );
+			$this->deleteItemPropertyEdges( $qId, $classes );
 		}
 
 		$sqlQueries = array();
 		// Create all of the new outgoing edges
 		foreach ( $dvEdges as $dvEdge ) {
+			if ( $classes && !in_array( $dvEdge['class'], $classes ) ) {
+				continue; // skip this edge class
+			}
 			$class = $dvEdge['class'];
 			unset( $dvEdge['class'] );
 			$toClass = $dvEdge['toClass'];
 			unset( $dvEdge['toClass'] );
+
 			$sqlQueries[] =
 				"create edge $class " .
 				"from (select from Item where id='$qId') " .
@@ -307,9 +312,17 @@ class WdqUpdater {
 	 * Delete all outgound edges from an Item
 	 *
 	 * @param string|in $id 64-bit integer
+	 * @param array|null $classes Only delete classes of these types if set
 	 */
-	public function deleteItemPropertyEdges( $id ) {
-		$this->tryCommand( "delete edge from (select from Item where id=$id)" );
+	public function deleteItemPropertyEdges( $id, array $classes = null ) {
+		if ( is_array( $classes ) && !$classes ) {
+			return; // nothing to do
+		}
+		$sql = "delete edge from (select from Item where id=$id)";
+		if ( $classes ) {
+			$sql .= ' where @class in [' . implode( ',', $classes ) . ']';
+		}
+		$this->tryCommand( $sql );
 	}
 
 	/**

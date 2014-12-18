@@ -74,7 +74,7 @@ function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback 
 function main() {
 	$options = getopt( '', array(
 		"dump:", "phase:", "user:", "password:",
-		"posdir::", "method::", "modulo::",
+		"posdir::", "method::", "modulo::", "classes::"
 	) );
 
 	$dump = $options['dump'];
@@ -94,6 +94,9 @@ function main() {
 	if ( count( $modParams ) != 2 ) {
 		die( "Bad --modulo parameter '$modulo'.\n" );
 	}
+	$classes = isset( $options['classes'] )
+		? explode( ',', $options['classes'] )
+		: null;
 
 	if ( $posFile !== null ) {
 		print( "Using position file: $posFile\n" );
@@ -120,12 +123,12 @@ function main() {
 	# Pass 2: establish all edges between vertexes
 	} elseif ( $phase === 'edges' ) {
 		iterateJsonDump( $dump, $modParams, $posFile,
-			function( $item, $count ) use ( $updater, $method ) {
+			function( $item, $count ) use ( $updater, $method, $classes ) {
 				if ( $item['type'] === 'item' ) {
 					// Restarting might redo the first item; preserve idempotence
 					$safeMethod = ( $count == 1 ) ? 'rebuild' : $method;
 					print( 'Importing edges for Item ' . $item['id'] . " ($safeMethod)\n" );
-					$updater->importItemPropertyEdges( $item, $safeMethod );
+					$updater->importItemPropertyEdges( $item, $safeMethod, $classes );
 				}
 			}
 		);
