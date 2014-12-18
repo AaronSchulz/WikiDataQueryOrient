@@ -102,6 +102,10 @@ function main() {
 		print( "Using position file: $posFile\n" );
 	}
 
+	if ( $posFile && !file_exists( dirname( $posFile ) ) ) {
+		mkdir( dirname( $posFile ), 0777 );
+	}
+
 	$db = new OrientDB( 'localhost', 2424 );
 	$db->connect( $user, $password );
 	$db->DBOpen( 'WikiData', 'admin', 'admin' );

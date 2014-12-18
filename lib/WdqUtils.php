@@ -95,6 +95,7 @@ class WdqUtils {
 				$ovalue = $value;
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
 				$value = rtrim( $value, '\\' ); // avoid exceptions
+				$value = str_replace( '\u', 'u', $value ); // avoid exceptions
 				if ( $value !== $ovalue ) {
 					print( "JSON: converted value '$ovalue' => '$value'.\n" );
 				}

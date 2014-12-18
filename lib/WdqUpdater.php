@@ -16,6 +16,8 @@ class WdqUpdater {
 	}
 
 	/**
+	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel/Primer
+	 *
 	 * @param array $item
 	 * @param string $update (update/insert/upsert)
 	 */
@@ -27,32 +29,56 @@ class WdqUpdater {
 				$siteLinks[$site] = $link['site'] . '#' . $link['title'];
 			}
 		}
+		$labels = array(); // map of (<language> => <label>)
+		// Flatten labels to a 1-level list for querying
+		if ( isset( $item['labels'] ) ) {
+			foreach ( $item['labels'] as $lang => $label ) {
+				$labels[$lang] = $label['value'];
+			}
+		}
 		// Include the claims for JSON document query filtering
 		$claims = array();
 		if ( isset( $item['claims'] ) ) {
 			foreach ( $item['claims'] as $propertyId => $statements ) {
 				foreach ( $statements as $statement ) {
-					$claims[$propertyId][$statement['id']] = $statement;
-					// Remove redundant field to save space
-					unset( $claims[$propertyId][$statement['id']]['id'] );
+					$id = $statement['id'];
+					// Remove redundant or useless field to save space
+					unset( $statement['id'] ); // used as key
+					unset( $statement['type'] ); // always "statement"
+					unset( $statement['references'] ); // unused
+					unset( $statement['mainsnak']['property'] );
+					unset( $statement['mainsnak']['hash'] );
+					// Use the cleaned up statement
+					$claims[$propertyId][$id] = $statement;
 				}
 			}
 		}
 		// Include the property IDs (pids) referenced for tracking
 		$coreItem = array(
 			'id'        => WdqUtils::wdcToLong( $item['id'] ),
+			'labels'    => $labels ? $labels : (object)array(),
+			'sitelinks' => $siteLinks ? $siteLinks : (object)array(),
 			'claims'    => $claims,
-			'sitelinks' => $siteLinks ? $siteLinks : (object)array()
 		) + $this->getReferenceIdSet( $claims );
 
 		if ( $update === 'update' || $update === 'upsert' ) {
-			$this->tryCommand( "update Item content " .
-				WdqUtils::toJSON( $coreItem ) . " where id='{$coreItem['id']}'" );
+			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
+			$set = array();
+			foreach ( $coreItem as $key => $value ) {
+				if ( $key === 'id' ) { // PK
+					continue;
+				} elseif ( is_array( $value ) ) {
+					$set[] = "$key=" . WdqUtils::toJSON( $value );
+				} else {
+					$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
+				}
+			}
+			$set = implode( ',', $set );
+			$this->tryCommand( "update Item set $set where id={$coreItem['id']}" );
 		}
 
 		if ( $update === 'insert' || $update === 'upsert' ) {
-			$this->tryCommand( 'create vertex Item content ' .
-				WdqUtils::toJSON( $coreItem ) );
+			$this->tryCommand( 'create vertex Item content ' . WdqUtils::toJSON( $coreItem ) );
 		}
 	}
 
@@ -95,13 +121,23 @@ class WdqUpdater {
 		);
 
 		if ( $update === 'update' || $update === 'upsert' ) {
-			$this->tryCommand( "update Property content " .
-				WdqUtils::toJSON( $coreItem ) . " where id='{$coreItem['id']}'" );
+			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
+			$set = array();
+			foreach ( $coreItem as $key => $value ) {
+				if ( $key === 'id' ) { // PK
+					continue;
+				} elseif ( is_array( $value ) ) {
+					$set[] = "$key=" . WdqUtils::toJSON( $value );
+				} else {
+					$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
+				}
+			}
+			$set = implode( ',', $set );
+			$this->tryCommand( "update Property set $set where id='{$coreItem['id']}'" );
 		}
 
 		if ( $update === 'insert' || $update === 'upsert' ) {
-			$this->tryCommand( "create vertex Property content " .
-				WdqUtils::toJSON( $coreItem ) );
+			$this->tryCommand( "create vertex Property content " . WdqUtils::toJSON( $coreItem ) );
 		}
 	}
 
@@ -142,51 +178,35 @@ class WdqUpdater {
 		foreach ( $item['claims'] as $propertyId => $statements ) {
 			$pId = WdqUtils::wdcToLong( $propertyId );
 			foreach ( $statements as $statement ) {
-				$dvEdge = false;
-
 				$mainSnak = $statement['mainsnak'];
 				if ( $mainSnak['snaktype'] === 'value' ) {
-					$dvEdge = $this->getValueStatementEdge( $qId, $pId, $mainSnak );
-					if ( $dvEdge ) {
-						// https://www.wikidata.org/wiki/Help:Ranking
-						$dvEdge['rank'] = $rankMap[$statement['rank']];
-						$dvEdge['best'] = $dvEdge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
-						$dvEdge['sid'] = $statement['id'];
-					}
+					$edges = $this->getValueStatementEdges( $qId, $pId, $mainSnak );
 				} elseif ( $mainSnak['snaktype'] === 'somevalue' ) {
-					$dvEdge = array(
+					$edges[] = array(
 						'class'   => 'HPwSomeV',
 						'oid'     => $qId,
 						'iid'     => $pId,
-						'toClass' => 'Property',
-						'rank'    => $rankMap[$statement['rank']],
-						'best'    => $rankMap[$statement['rank']] >= $maxRankByPid[$pId] ? 1 : 0,
-						'sid'     => $statement['id']
+						'toClass' => 'Property'
 					);
 				} elseif ( $mainSnak['snaktype'] === 'novalue' ) {
-					$dvEdge = array(
+					$edges[] = array(
 						'class'   => 'HPwNoV',
 						'oid'     => $qId,
 						'iid'     => $pId,
-						'toClass' => 'Property',
-						'rank'    => $rankMap[$statement['rank']],
-						'best'    => $rankMap[$statement['rank']] >= $maxRankByPid[$pId] ? 1 : 0,
-						'sid'     => $statement['id']
+						'toClass' => 'Property'
 					);
+				} else {
+					$edges = array();
 				}
 
-				if ( $dvEdge ) {
-					$dvEdges[] = $dvEdge;
-					$dvEdges[] = array(
-						'class'   => 'HP',
-						'oid'     => $qId,
-						'iid'     => $pId,
-						'toClass' => 'Property',
-						'rank'    => $rankMap[$statement['rank']],
-						'best'    => $rankMap[$statement['rank']] >= $maxRankByPid[$pId] ? 1 : 0,
-						'sid'     => $statement['id']
-					);
+				// https://www.wikidata.org/wiki/Help:Ranking
+				foreach ( $edges as $edge ) {
+					$edge['rank'] = $rankMap[$statement['rank']];
+					$edge['best'] = $edge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
+					$edge['sid'] = $statement['id'];
 				}
+
+				$dvEdges = array_merge( $dvEdges, $edges );
 			}
 		}
 
@@ -226,14 +246,21 @@ class WdqUpdater {
 	 * @param array $mainSnak
 	 * @return array
 	 */
-	protected function getValueStatementEdge( $qId, $pId, array $mainSnak ) {
-		$dvEdge = null;
+	protected function getValueStatementEdges( $qId, $pId, array $mainSnak ) {
+		$dvEdges = array();
 
 		$type = $mainSnak['datavalue']['type'];
 		if ( $type === 'wikibase-entityid' ) {
 			$otherId = $mainSnak['datavalue']['value']['numeric-id'];
-			$dvEdge = array(
+			$dvEdges[] = array(
 				'class'   => 'HPwIV',
+				'val'     => $otherId,
+				'oid'     => $qId,
+				'iid'     => $pId,
+				'toClass' => 'Property'
+			);
+			$dvEdges[] = array(
+				'class'   => 'HIaPV',
 				'pid'     => $pId,
 				'oid'     => $qId,
 				'iid'     => $otherId,
@@ -243,7 +270,7 @@ class WdqUpdater {
 			$time = $mainSnak['datavalue']['value']['time'];
 			$tsUnix = WdqUtils::getUnixTimeFromISO8601( $time ); // for range queries
 			if ( $tsUnix !== false ) {
-				$dvEdge = array(
+				$dvEdges[] = array(
 					'class'   => 'HPwTV',
 					'val'     => $tsUnix,
 					'oid'     => $qId,
@@ -253,7 +280,7 @@ class WdqUpdater {
 			}
 		} elseif ( $type === 'quantity' ) {
 			$amount = $mainSnak['datavalue']['value']['amount']; // decimals
-			$dvEdge = array(
+			$dvEdges[] = array(
 				'class'   => 'HPwQV',
 				'val'     => (float) $amount,
 				'oid'     => $qId,
@@ -261,7 +288,7 @@ class WdqUpdater {
 				'toClass' => 'Property'
 			);
 		} elseif ( $type === 'globecoordinate' ) {
-			$dvEdge = WdqUtils::normalizeGeoCoordinates( array(
+			$dvEdges[] = WdqUtils::normalizeGeoCoordinates( array(
 				'class'   => 'HPwCV',
 				'lat'     => (float) $mainSnak['datavalue']['value']['latitude'],
 				'lon'     => (float) $mainSnak['datavalue']['value']['longitude'],
@@ -270,7 +297,7 @@ class WdqUpdater {
 				'toClass' => 'Property'
 			) );
 		} elseif ( $type === 'url' || $type === 'string' ) {
-			$dvEdge = array(
+			$dvEdges[] = array(
 				'class'   => 'HPwSV',
 				'val'     => (string) $mainSnak['datavalue']['value'],
 				'oid'     => $qId,
@@ -279,7 +306,7 @@ class WdqUpdater {
 			);
 		}
 
-		return $dvEdge;
+		return $dvEdges;
 	}
 
 	/**
