@@ -58,7 +58,7 @@ class WdqUpdater {
 			'id'        => WdqUtils::wdcToLong( $item['id'] ),
 			'labels'    => $labels ? $labels : (object)array(),
 			'sitelinks' => $siteLinks ? $siteLinks : (object)array(),
-			'claims'    => $claims,
+			'claims'    => $claims ? $claims : (object)array(),
 		) + $this->getReferenceIdSet( $claims );
 
 		if ( $update === 'update' || $update === 'upsert' ) {
@@ -67,10 +67,10 @@ class WdqUpdater {
 			foreach ( $coreItem as $key => $value ) {
 				if ( $key === 'id' ) { // PK
 					continue;
-				} elseif ( is_array( $value ) ) {
-					$set[] = "$key=" . WdqUtils::toJSON( $value );
-				} else {
+				} elseif ( is_scalar( $value ) ) {
 					$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
+				} else {
+					$set[] = "$key=" . WdqUtils::toJSON( $value );
 				}
 			}
 			$set = implode( ',', $set );
@@ -126,10 +126,10 @@ class WdqUpdater {
 			foreach ( $coreItem as $key => $value ) {
 				if ( $key === 'id' ) { // PK
 					continue;
-				} elseif ( is_array( $value ) ) {
-					$set[] = "$key=" . WdqUtils::toJSON( $value );
-				} else {
+				} elseif ( is_scalar( $value ) ) {
 					$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
+				} else {
+					$set[] = "$key=" . WdqUtils::toJSON( $value );
 				}
 			}
 			$set = implode( ',', $set );

@@ -13,6 +13,8 @@ create property Item.id long;
 create property Item.labels EMBEDDEDMAP string;
 -- Store site links as a map of <site> => <site>#<title>
 create property Item.sitelinks EMBEDDEDMAP string;
+-- Store the map of <property> => <statements JSON>
+create property Item.claims EMBEDDEDMAP embedded;
 -- Store the IDs of properties and items referenced
 create property Item.pids EMBEDDEDSET long; -- properties referenced
 create property Item.iids EMBEDDEDSET long; -- items referenced
@@ -20,6 +22,7 @@ create property Item.iids EMBEDDEDSET long; -- items referenced
 alter property Item.id MANDATORY true;
 alter property Item.labels MANDATORY true;
 alter property Item.sitelinks MANDATORY true;
+alter property Item.claims MANDATORY true;
 alter property Item.pids MANDATORY true;
 alter property Item.iids MANDATORY true;
 -- Q codes are unique

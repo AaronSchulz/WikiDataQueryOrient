@@ -71,14 +71,17 @@ class WdqUtils {
 	/**
 	 * Take an arbitrarily nested array and turn it into JSON
 	 *
-	 * @param array $array
+	 * @param array|object $object
 	 * @return string
 	 */
-	public static function toJSON( array $array ) {
-		$json = json_encode( $array );
+	public static function toJSON( $object ) {
+		if ( is_scalar( $object ) ) {
+			throw new Exception( "Expected object or array." );
+		}
+		$json = json_encode( $object );
 		if ( strpos( $json, '\\\\' ) !== false ) {
 			// https://github.com/orientechnologies/orientdb/issues/2424
-			$json = json_encode( self::mangleBacklashes( $array ) );
+			$json = json_encode( self::mangleBacklashes( $object ) );
 		}
 		return $json;
 	}
