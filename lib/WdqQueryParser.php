@@ -4,7 +4,7 @@
  * Easy to use abstract query language helper
  *
  * Example query:
- * SELECT id,claim FROM
+ * (id,claims) FROM
  * UNION(
  *  DIFFERENCE(
  *		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
@@ -40,6 +40,7 @@ class WdqQueryParser {
 
 	/**
 	 * @param string $s
+	 * @param integer $timeout
 	 * @return string
 	 */
 	public static function parse( $s, $timeout = 5000 ) {
@@ -48,11 +49,7 @@ class WdqQueryParser {
 		list( $s, $map ) = self::stripQuotedStrings( $s );
 		$rest = $s;
 
-		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
-		if ( $token !== 'SELECT' ) {
-			throw new ParseException( "Expected SELECT: $s" );
-		}
-		$rest = ltrim( substr( $rest, strlen( $token ) ) );
+		// Get the properties selecteed
 		$props = self::consume( $rest, '()' );
 
 		$rest = ltrim( $rest );
@@ -262,7 +259,7 @@ class WdqQueryParser {
 					") WHERE @class='Item'";
 			} else {
 				// Just grab the root items
-				$sql = "SELECT FROM Item WHERE ($inClause)";
+				$sql = "SELECT @RID AS out FROM Item WHERE ($inClause)";
 			}
 			$qualiferPrefix = null; // makes no sense
 		} else {
@@ -374,9 +371,7 @@ class WdqQueryParser {
 
 		if ( !$where ) {
 			throw new ParseException( "Unparsable: $s" );
-		}
-
-		if ( strlen( $rest ) ) {
+		} elseif ( strlen( $rest ) ) {
 			throw new ParseException( "Excess filter statements found: $rest" );
 		}
 

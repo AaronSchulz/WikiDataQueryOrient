@@ -200,7 +200,7 @@ class WdqUpdater {
 				}
 
 				// https://www.wikidata.org/wiki/Help:Ranking
-				foreach ( $edges as $edge ) {
+				foreach ( $edges as &$edge ) {
 					$edge['rank'] = $rankMap[$statement['rank']];
 					$edge['best'] = $edge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
 					$edge['sid'] = $statement['id'];
@@ -288,7 +288,7 @@ class WdqUpdater {
 				'toClass' => 'Property'
 			);
 		} elseif ( $type === 'globecoordinate' ) {
-			$dvEdges[] = WdqUtils::normalizeGeoCoordinates( array(
+			$dvEdge = WdqUtils::normalizeGeoCoordinates( array(
 				'class'   => 'HPwCV',
 				'lat'     => (float) $mainSnak['datavalue']['value']['latitude'],
 				'lon'     => (float) $mainSnak['datavalue']['value']['longitude'],
@@ -296,6 +296,9 @@ class WdqUpdater {
 				'iid'     => $pId,
 				'toClass' => 'Property'
 			) );
+			if ( $dvEdge ) {
+				$dvEdges[] = $dvEdge;
+			}
 		} elseif ( $type === 'url' || $type === 'string' ) {
 			$dvEdges[] = array(
 				'class'   => 'HPwSV',
