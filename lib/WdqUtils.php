@@ -3,14 +3,14 @@
 class WdqUtils {
 	/**
 	 * @param string $code
-	 * @return string integer
+	 * @return float integer
 	 */
 	public static function wdcToLong( $code ) {
 		$int = substr( $code, 1 ); // strip the Q/P/L
 		if ( !preg_match( '/^\d+$/', $int ) ) {
 			throw new Exception( "Invalid code '$code'." );
 		}
-		return $int;
+		return (float)$int;
 	}
 
 	/**
@@ -75,37 +75,31 @@ class WdqUtils {
 	 * @return string
 	 */
 	public static function toJSON( $object ) {
-		if ( is_scalar( $object ) ) {
-			throw new Exception( "Expected object or array." );
-		}
-		$flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_QUOT;
-		$json = json_encode( $object, $flags );
-		if ( strpos( $json, '\\\\' ) !== false ) {
-			// https://github.com/orientechnologies/orientdb/issues/2424
-			$json = json_encode( self::mangleBacklashes( $object, $flags ) );
-		}
-		return $json;
+		$flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_QUOT | JSON_HEX_APOS;
+		return json_encode( self::mangleBacklashes( $object ), $flags );
 	}
 
 	/**
-	 * @param array $array
-	 * @return array
+	 * @param array|object $object
+	 * @return array|object
 	 */
-	protected static function mangleBacklashes( array $array ) {
-		foreach ( $array as $key => &$value ) {
-			if ( is_array( $value ) ) {
-				$value = self::mangleBacklashes( $value );
-			} elseif ( is_string( $value ) ) {
+	protected static function mangleBacklashes( $object ) {
+		foreach ( $object as $key => &$value ) {
+			if ( is_string( $value ) ) {
 				$ovalue = $value;
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
 				$value = rtrim( $value, '\\' ); // avoid exceptions
 				#$value = str_replace( '\u', 'u', $value ); // avoid exceptions
+				$value = addcslashes( $value, '"' );
+				$value = addcslashes( $value, '"' );
 				if ( $value !== $ovalue ) {
 					print( "JSON: converted value '$ovalue' => '$value'.\n" );
 				}
+			} elseif ( is_object( $value ) || is_array( $value ) ) {
+				$value = self::mangleBacklashes( $value );
 			}
 		}
 		unset( $value );
-		return $array;
+		return $object;
 	}
 }

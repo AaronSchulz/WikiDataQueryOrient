@@ -56,9 +56,11 @@ function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback 
 					throw new Exception( "Got bad JSON line:\n$line\n" );
 				}
 				++$itemCount;
-				$callback( $item, $itemCount );
+				$hasAdvanced = $callback( $item, $itemCount );
+			} else {
+				$hasAdvanced = false;
 			}
-			if ( $posFile ) {
+			if ( $posFile && $hasAdvanced ) {
 				// Dump each line so method=bulk_init is restartable
 				$bytes = file_put_contents( $posFile, $pos . '|' . $offset );
 				if ( $bytes === false ) {
@@ -111,17 +113,29 @@ function main() {
 
 	# Pass 1; load in all vertexes
 	if ( $phase === 'vertexes' ) {
+		$batch = array();
 		iterateJsonDump( $dump, $modParams, $posFile,
-			function( $item ) use ( $updater, $method ) {
-				if ( $item['type'] === 'item' ) {
-					print( 'Importing vertex for Item ' . $item['id'] . " ($method)\n" );
-					$updater->importItemVertex( $item, $method );
-				} elseif ( $item['type'] === 'property' ) {
-					print( 'Importing vertex for Property ' . $item['id'] . " ($method)\n" );
-					$updater->importPropertyVertex( $item, $method );
+			function( $entity ) use ( $updater, $method, &$batch ) {
+				if ( $entity['type'] === 'item' ) {
+					print( 'Importing vertex for Item ' . $entity['id'] . " ($method)\n" );
+					$batch[] = $entity;
+				} elseif ( $entity['type'] === 'property' ) {
+					print( 'Importing vertex for Property ' . $entity['id'] . " ($method)\n" );
+					$batch[] = $entity;
 				}
+				if ( count( $batch ) >= 10 ) {
+					print( "Comitting...\n" );
+					$updater->importEntities( $batch, $method );
+					$batch = array();
+					return true;
+				}
+				return false;
 			}
 		);
+		if ( count( $batch ) ) {
+			$updater->importEntities( $batch, $method );
+			$batch = array();
+		}
 	# Pass 2: establish all edges between vertexes
 	} elseif ( $phase === 'edges' ) {
 		iterateJsonDump( $dump, $modParams, $posFile,
@@ -132,6 +146,7 @@ function main() {
 					print( 'Importing edges for Item ' . $item['id'] . " ($safeMethod)\n" );
 					$updater->importItemPropertyEdges( $item, $safeMethod, $classes );
 				}
+				return true;
 			}
 		);
 	}

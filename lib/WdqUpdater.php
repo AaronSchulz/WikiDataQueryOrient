@@ -28,10 +28,33 @@ class WdqUpdater {
 	/**
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel/Primer
 	 *
+	 * @param array $entities
+	 * @param string $update (update/insert/upsert)
+	 * @throws Exception
+	 */
+	public function importEntities( array $entities, $update ) {
+		$sqlQueries = array();
+		$sqlQueries[] = 'begin';
+		foreach ( $entities as $entity ) {
+			if ( $entity['type'] === 'item' ) {
+				$sqlQueries[] = $this->importItemVertexSQL( $entity, $update );
+			} elseif ( $entity['type'] === 'property' ) {
+				$sqlQueries[] = $this->importPropertyVertexSQL( $entity, $update );
+			}
+		}
+		$sqlQueries[] = 'commit retry 100';
+
+		$this->tryCommand( $sqlQueries );
+	}
+
+	/**
+	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel/Primer
+	 *
 	 * @param array $item
 	 * @param string $update (update/insert/upsert)
+	 * @return string
 	 */
-	public function importItemVertex( array $item, $update ) {
+	public function importItemVertexSQL( array $item, $update ) {
 		$siteLinks = array(); // map of (<site> => <site>#<title>)
 		// Flatten site links to a 1-level list for indexing
 		if ( isset( $item['sitelinks'] ) ) {
@@ -85,12 +108,14 @@ class WdqUpdater {
 			}
 			$set = implode( ', ', $set );
 
-			$this->tryCommand( "update Item set $set where id={$coreItem['id']}" );
+			return "update Item set $set where id={$coreItem['id']}";
 		}
 
 		if ( $update === 'insert' || $update === 'upsert' ) {
-			$this->tryCommand( "create vertex Item content " . WdqUtils::toJSON( $coreItem ) );
+			return "create vertex Item content " . WdqUtils::toJSON( $coreItem );
 		}
+
+		throw new Exception( "Bad method '$update'." );
 	}
 
 	/**
@@ -124,8 +149,9 @@ class WdqUpdater {
 	/**
 	 * @param array $item
 	 * @param string $update (insert/update/upsert)
+	 * @return string
 	 */
-	public function importPropertyVertex( array $item, $update ) {
+	public function importPropertyVertexSQL( array $item, $update ) {
 		$coreItem = array(
 			'id'       => (float) WdqUtils::wdcToLong( $item['id'] ),
 			'datatype' => $item['datatype']
@@ -144,12 +170,14 @@ class WdqUpdater {
 				}
 			}
 			$set = implode( ',', $set );
-			$this->tryCommand( "update Property set $set where id='{$coreItem['id']}'" );
+			return "update Property set $set where id={$coreItem['id']}";
 		}
 
 		if ( $update === 'insert' || $update === 'upsert' ) {
-			$this->tryCommand( "create vertex Property content " . WdqUtils::toJSON( $coreItem ) );
+			return "create vertex Property content " . WdqUtils::toJSON( $coreItem );
 		}
+
+		throw new Exception( "Bad method '$update'." );
 	}
 
 	/**
@@ -377,14 +405,15 @@ class WdqUpdater {
 						'script'   => $sql
 					)
 				)
-			), JSON_UNESCAPED_SLASHES )
+			) )
 		) );
 
 		if ( $rcode != 200 ) {
 			if ( $ignore_dups && strpos( $rbody, 'ORecordDuplicatedException' ) !== false ) {
 				return null;
 			}
-			print( "Error on command:\n$sql\n\n" );
+			$errSql = is_array( $sql ) ? implode( "\n", $sql ) : $sql;
+			print( "Error on command:\n$errSql\n\n" );
 			throw new Exception( "Command failed ($rcode). Got:\n$rbody" );
 		}
 
