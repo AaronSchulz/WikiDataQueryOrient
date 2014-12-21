@@ -1,6 +1,5 @@
 <?php
 
-require_once( __DIR__ . '/../lib/OrientDB-PHP-master/OrientDB/OrientDB.php' );
 require_once( __DIR__ . '/../lib/autoload.php' );
 
 error_reporting( E_ALL );
@@ -74,13 +73,14 @@ function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback 
 function main() {
 	$options = getopt( '', array(
 		"dump:", "phase:", "user:", "password:",
-		"posdir::", "method::", "modulo::", "classes::"
+		"url::", "posdir::", "method::", "modulo::", "classes::"
 	) );
 
 	$dump = $options['dump'];
 	$phase = $options['phase']; // vertexes/edges
 	$user = $options['user'];
 	$password = $options['password'];
+	$url = isset( $options['url'] ) ? $options['url'] : 'http://localhost:2480';
 	$method = isset( $options['method'] )
 		? $options['method']
 		: ( $phase === 'vertexes' ? 'upsert' : 'rebuild' );
@@ -106,10 +106,8 @@ function main() {
 		mkdir( dirname( $posFile ), 0777 );
 	}
 
-	$db = new OrientDB( 'localhost', 2424 );
-	$db->connect( $user, $password );
-	$db->DBOpen( 'WikiData', 'admin', 'admin' );
-	$updater = new WdqUpdater( $db );
+	$auth = array( 'url' => $url, 'user' => $user, 'password' => $password );
+	$updater = new WdqUpdater( new MultiHttpClient( array() ), $auth );
 
 	# Pass 1; load in all vertexes
 	if ( $phase === 'vertexes' ) {
@@ -139,5 +137,4 @@ function main() {
 	}
 }
 
-# Begin execution
 main();

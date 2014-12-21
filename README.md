@@ -29,10 +29,10 @@ Importing scripts and query helper classes for storing WikiData information in O
 *** Importing data ***
 
 1) Import vertexes:
-	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase vertexes --user root --password root --method=insert --posdir=F:/importer/data/pos
+	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase vertexes --user root --password root --method=insert --posdir=F:/importer/pos
 
 2) Import edges:
-	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase edges --user root --password root --method=bulk_init --posdir=F:/importer/data/pos
+	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase edges --user root --password root --method=bulk_init --posdir=F:/importer/pos
 
 *** Updating via API ***
 

@@ -1,18 +1,28 @@
 <?php
 
-if ( !class_exists( 'OrientDB' ) ) {
-	die( "Missing PHP OrientDB library." );
-}
-
 class WdqUpdater {
-	/** @var OrientDB */
-	protected $db;
+	/** @var MultiHttpClient */
+	protected $http;
+
+	/** @var string */
+	protected $url;
+	/** @var string */
+	protected $user;
+	/** @var string */
+	protected $password;
+
+	/** @var string */
+	protected $sessionId;
 
 	/**
-	 * @param OrientDB $client
+	 * @param MultiHttpClient $http
+	 * @param array $auth
 	 */
-	public function __construct( OrientDB $client ) {
-		$this->db = $client;
+	public function __construct( MultiHttpClient $http, array $auth ) {
+		$this->http = $http;
+		$this->url = $auth['url'];
+		$this->user = $auth['user'];
+		$this->password = $auth['password'];
 	}
 
 	/**
@@ -55,30 +65,31 @@ class WdqUpdater {
 		}
 		// Include the property IDs (pids) referenced for tracking
 		$coreItem = array(
-			'id'        => WdqUtils::wdcToLong( $item['id'] ),
+			'id'        => (float) WdqUtils::wdcToLong( $item['id'] ),
 			'labels'    => $labels ? $labels : (object)array(),
-			'sitelinks' => $siteLinks ? $siteLinks : (object)array(),
 			'claims'    => $claims ? $claims : (object)array(),
+			'sitelinks' => $siteLinks ? $siteLinks : (object)array(),
 		) + $this->getReferenceIdSet( $claims );
 
 		if ( $update === 'update' || $update === 'upsert' ) {
 			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
 			$set = array();
 			foreach ( $coreItem as $key => $value ) {
-				if ( $key === 'id' ) { // PK
-					continue;
+				if ( is_float( $value ) ) {
+					$set[] = "$key=$value";
 				} elseif ( is_scalar( $value ) ) {
 					$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
 				} else {
 					$set[] = "$key=" . WdqUtils::toJSON( $value );
 				}
 			}
-			$set = implode( ',', $set );
+			$set = implode( ', ', $set );
+
 			$this->tryCommand( "update Item set $set where id={$coreItem['id']}" );
 		}
 
 		if ( $update === 'insert' || $update === 'upsert' ) {
-			$this->tryCommand( 'create vertex Item content ' . WdqUtils::toJSON( $coreItem ) );
+			$this->tryCommand( "create vertex Item content " . WdqUtils::toJSON( $coreItem ) );
 		}
 	}
 
@@ -116,7 +127,7 @@ class WdqUpdater {
 	 */
 	public function importPropertyVertex( array $item, $update ) {
 		$coreItem = array(
-			'id'       => WdqUtils::wdcToLong( $item['id'] ),
+			'id'       => (float) WdqUtils::wdcToLong( $item['id'] ),
 			'datatype' => $item['datatype']
 		);
 
@@ -179,6 +190,8 @@ class WdqUpdater {
 			$pId = WdqUtils::wdcToLong( $propertyId );
 			foreach ( $statements as $statement ) {
 				$mainSnak = $statement['mainsnak'];
+
+				$edges = array();
 				if ( $mainSnak['snaktype'] === 'value' ) {
 					$edges = $this->getValueStatementEdges( $qId, $pId, $mainSnak );
 				} elseif ( $mainSnak['snaktype'] === 'somevalue' ) {
@@ -195,8 +208,6 @@ class WdqUpdater {
 						'iid'     => $pId,
 						'toClass' => 'Property'
 					);
-				} else {
-					$edges = array();
 				}
 
 				// https://www.wikidata.org/wiki/Help:Ranking
@@ -205,17 +216,24 @@ class WdqUpdater {
 					$edge['best'] = $edge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
 					$edge['sid'] = $statement['id'];
 				}
+				unset( $edge );
 
 				$dvEdges = array_merge( $dvEdges, $edges );
 			}
 		}
 
+		$sqlQueries = array();
+		$sqlQueries[] = 'begin';
 		// Destroy all prior outgoing edges
 		if ( $method !== 'bulk_init' ) {
-			$this->deleteItemPropertyEdges( $qId, $classes );
+			if ( $classes === null || count( $classes ) ) {
+				$sql = "delete edge from (select from Item where id=$qId)";
+				if ( $classes ) {
+					$sql .= ' where @class in [' . implode( ',', $classes ) . ']';
+				}
+				$sqlQueries[] = $sql;
+			}
 		}
-
-		$sqlQueries = array();
 		// Create all of the new outgoing edges
 		foreach ( $dvEdges as $dvEdge ) {
 			if ( $classes && !in_array( $dvEdge['class'], $classes ) ) {
@@ -232,10 +250,9 @@ class WdqUpdater {
 				"to (select from $toClass where id='{$dvEdge['iid']}') content " .
 				WdqUtils::toJSON( $dvEdge );
 		}
-		// @TODO: batch?
-		foreach ( $sqlQueries as $sqlQuery ) {
-			$this->tryCommand( $sqlQuery );
-		}
+		$sqlQueries[] = 'commit retry 100';
+
+		$this->tryCommand( $sqlQueries );
 	}
 
 	/**
@@ -339,47 +356,86 @@ class WdqUpdater {
 	}
 
 	/**
-	 * Delete all outgound edges from an Item
-	 *
-	 * @param string|in $id 64-bit integer
-	 * @param array|null $classes Only delete classes of these types if set
+	 * @param string|array $sql
+	 * @param bool $ignore_dups
+	 * @return array|null
+	 * @throws Exception
 	 */
-	public function deleteItemPropertyEdges( $id, array $classes = null ) {
-		if ( is_array( $classes ) && !$classes ) {
-			return; // nothing to do
+	public function tryCommand( $sql, $ignore_dups = true ) {
+		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( array(
+			'method'  => 'POST',
+			'url'     => "{$this->url}/batch/WikiData",
+			'headers' => array(
+				'Content-Type' => "application/json",
+				'Cookie'       => "OSESSIONID={$this->getSessionId()}" ),
+			'body'    => json_encode( array(
+				'transaction' => false,
+				'operations'  => array(
+					array(
+						'type'     => 'script',
+						'language' => 'sql',
+						'script'   => $sql
+					)
+				)
+			), JSON_UNESCAPED_SLASHES )
+		) );
+
+		if ( $rcode != 200 ) {
+			if ( $ignore_dups && strpos( $rbody, 'ORecordDuplicatedException' ) !== false ) {
+				return null;
+			}
+			print( "Error on command:\n$sql\n\n" );
+			throw new Exception( "Command failed ($rcode). Got:\n$rbody" );
 		}
-		$sql = "delete edge from (select from Item where id=$id)";
-		if ( $classes ) {
-			$sql .= ' where @class in [' . implode( ',', $classes ) . ']';
-		}
-		$this->tryCommand( $sql );
+
+		$response = json_decode( $rbody, true );
+
+		return $response['result'];
 	}
 
 	/**
-	 * @param string $command
-	 * @param bool $ignore_dups
-	 * @return mixed
+	 * @param string|array $sql
+	 * @return array
+	 * @throws Exception
 	 */
-	protected function tryCommand( $command, $ignore_dups = true ) {
-		$res = null;
-		for ( $attempts = 1; $attempts <= 10; ++$attempts ) {
-			try {
-				$res = $this->db->command( OrientDB::COMMAND_QUERY, $command );
-			} catch ( OrientDBException $e ) {
-				$message = $e->getMessage();
-				if ( strpos( $message, 'OConcurrentModificationException' ) !== false ) {
-					continue; // retry
-				} elseif ( $ignore_dups
-					&& strpos( $message, 'ORecordDuplicatedException' ) !== false
-				) {
-					// ignore the error
-				} else {
-					print( "Error on attempted command:\n$command\n\n" );
-					throw $e;
-				}
-			}
-			break;
+	public function tryQuery( $sql ) {
+		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( array(
+			'method'  => 'GET',
+			'url'     => "{$this->url}/query/WikiData/sql/" . rawurlencode( $sql ),
+			'headers' => array( 'Cookie' => "OSESSIONID={$this->getSessionId()}" )
+		) );
+
+		if ( $rcode != 200 ) {
+			$tsql = substr( $sql, 0, 255 );
+			throw new Exception( "Command failed ($rcode).\n\nSent:\n$tsql...\n\nGot:\n$rbody" );
 		}
-		return $res;
+
+		$response = json_decode( $rbody, true );
+
+		return $response['result'];
+	}
+
+	/**
+	 * @return string
+	 * @throws Exception
+	 */
+	protected function getSessionId() {
+		if ( $this->sessionId !== null ) {
+			return $this->sessionId;
+		}
+		$hash = base64_encode( "{$this->user}:{$this->password}" );
+		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( array(
+			'method'  => 'GET',
+			'url'     => "{$this->url}/connect/WikiData",
+			'headers' => array( 'Authorization' => "Basic " . $hash )
+		) );
+		$m = array();
+		if ( preg_match( '/(?:^|;)OSESSIONID=([^;]+);/', $rhdrs['set-cookie'], $m ) ) {
+			$this->sessionId = $m[1];
+		} else {
+			throw new Exception( "Invalid authorization credentials ($rcode).\n" );
+		}
+
+		return $this->sessionId;
 	}
 }

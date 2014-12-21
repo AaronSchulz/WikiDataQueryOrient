@@ -35,7 +35,7 @@ class WdqQueryParser {
 	const RE_FLOAT = '[-+]?[0-9]*\.?[0-9]+';
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
 	const FLD_BASIC = '/^(id|claims|sitelinks|labels)$/';
-	const FLD_CMPLX = '/^((?:claims|sitelinks|labels)\[\$\d+\](?:\[sid\])?)\s+AS\s+([a-zA-Z_]+)$/';
+	const FLD_CMPLX = '/^((?:claims|sitelinks|labels)\[\$\d+\])\s+AS\s+([a-zA-Z_]+)$/';
 	const FLD_EDGE = '/^(val|sid)$/';
 
 	/**

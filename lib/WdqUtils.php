@@ -78,10 +78,11 @@ class WdqUtils {
 		if ( is_scalar( $object ) ) {
 			throw new Exception( "Expected object or array." );
 		}
-		$json = json_encode( $object );
+		$flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_QUOT;
+		$json = json_encode( $object, $flags );
 		if ( strpos( $json, '\\\\' ) !== false ) {
 			// https://github.com/orientechnologies/orientdb/issues/2424
-			$json = json_encode( self::mangleBacklashes( $object ) );
+			$json = json_encode( self::mangleBacklashes( $object, $flags ) );
 		}
 		return $json;
 	}
@@ -98,7 +99,7 @@ class WdqUtils {
 				$ovalue = $value;
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
 				$value = rtrim( $value, '\\' ); // avoid exceptions
-				$value = str_replace( '\u', 'u', $value ); // avoid exceptions
+				#$value = str_replace( '\u', 'u', $value ); // avoid exceptions
 				if ( $value !== $ovalue ) {
 					print( "JSON: converted value '$ovalue' => '$value'.\n" );
 				}

@@ -2,7 +2,7 @@
 -- 1) 'rank' fields use the system: (-1=deprecated, 0=normal, 1=preferred).
 -- 2) 'best' fields are 0 or 1 (1 if 'rank' is >= max rank of item statements for that property).
 -- 3) 'sid' fields identify a statement ID, making it easy to reference in the full JSON.
--- 4) oid/iid are denormalized out.id/in.id to avoid network I/O.
+-- 4) 'oid'/'iid' are denormalized out.id/in.id to avoid network I/O.
 
 create database remote:localhost/WikiData root root plocal graph;
 

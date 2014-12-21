@@ -1,6 +1,5 @@
 <?php
 
-require_once( __DIR__ . '/../lib/OrientDB-PHP-master/OrientDB/OrientDB.php' );
 require_once( __DIR__ . '/../lib/MultiHttpClient.php' );
 require_once( __DIR__ . '/../lib/autoload.php' );
 
@@ -10,24 +9,23 @@ error_reporting( E_ALL );
 ini_set( 'memory_limit', '256M' );
 
 function main() {
-	$options = getopt( '', array( "user:", "password:" ) );
+	$options = getopt( '', array( "user:", "password:", "url::" ) );
 
 	$user = $options['user'];
 	$password = $options['password'];
+	$url = isset( $options['url'] ) ? $options['url'] : 'http://localhost:2480';
 
-	$db = new OrientDB( 'localhost', 2424 );
-	$db->connect( $user, $password );
-	$db->DBOpen( 'WikiData', 'admin', 'admin' );
-	$updater = new WdqUpdater( $db );
 	$http = new MultiHttpClient( array() );
+	$auth = array( 'url' => $url, 'user' => $user, 'password' => $password );
+	$updater = new WdqUpdater( $http, $auth );
 
 	// Use the DBStatus table to get the current position
-	$sTimestamp = getCurrentRCPosition( $db );
+	$sTimestamp = getCurrentRCPosition( $updater );
 	// If not set, then get the highest Q code and it's creation timestamp.
 	// XXX: grab several of the highest, in case the highest X where deleted.
 	if ( $sTimestamp === null ) {
 		print( "No replication timestamp found; determining.\n" );
-		$sTimestamp = determineRCPosition( $db, $http );
+		$sTimestamp = determineRCPosition( $updater, $http );
 	}
 
 	// Fail if no replication timestamp could be determined
@@ -167,7 +165,7 @@ function main() {
 
 		// Update the replication position
 		$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
-		$db->command( OrientDB::COMMAND_QUERY,
+		$updater->tryCommand(
 			"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
 		print( "Updated replication position to $lastTimestamp.\n" );
 
@@ -178,40 +176,33 @@ function main() {
 	}
 }
 
-function getCurrentRCPosition( OrientDB $db ) {
+function getCurrentRCPosition( WdqUpdater $updater ) {
 	$cTimestamp = null;
 
-	$res = $db->command( OrientDB::COMMAND_SELECT_ASYNC,
+	$res = $updater->tryQuery(
 		"SELECT rc_id,rc_timestamp FROM DBStatus WHERE name='LastRCInfo'" );
-	if ( $res === false ) {
-		return null;
-	}
 
 	foreach ( $res as $record ) {
-		$cTimestamp = $record->data->rc_timestamp;
+		$cTimestamp = $record['rc_timestamp'];
 	}
 
 	return $cTimestamp;
 }
 
-function determineRCPosition( OrientDB $db, MultiHttpClient $http ) {
+function determineRCPosition( WdqUpdater $updater, MultiHttpClient $http ) {
 	$cTimestamp = null;
 
-	$res = $db->command( OrientDB::COMMAND_SELECT_ASYNC,
-		"SELECT id FROM Item ORDER BY id DESC LIMIT 100" );
-	if ( $res === false ) {
-		return null;
-	}
+	$res = $updater->tryQuery( "SELECT id FROM Item ORDER BY id DESC LIMIT 100" );
 
 	foreach ( $res as $record ) {
 		$query = array(
-			'action' => 'query', 'prop' => 'revisions', 'titles' => "Q{$record->data->id}",
+			'action' => 'query', 'prop' => 'revisions', 'titles' => "Q{$record['id']}",
 			'rvdir'  => 'newer', 'rvlimit' => 1, 'rvprop' => 'timestamp',
 			'format' => 'json'
 		);
 		$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => $query );
 
-		print( "Getting creation timestamp of 'Q{$record->data->id}' via API.\n" );
+		print( "Getting creation timestamp of 'Q{$record['id']}' via API.\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
 		$result = json_decode( $rbody, true );
 
@@ -223,7 +214,7 @@ function determineRCPosition( OrientDB $db, MultiHttpClient $http ) {
 					print( "Setting replication timestamp to $cTimestamp.\n" );
 					// Set the initial replication timestamp
 					$row = array( 'name' => 'LastRCInfo', 'rc_timestamp' => $cTimestamp );
-					$db->command( OrientDB::COMMAND_QUERY,
+					$updater->tryCommand(
 						"INSERT INTO DBStatus CONTENT " . json_encode( $row ) );
 					return $cTimestamp;
 				} else {
