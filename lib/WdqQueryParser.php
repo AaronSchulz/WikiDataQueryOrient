@@ -6,7 +6,7 @@
  * Example query:
  * (id,claims) FROM
  * UNION(
- *  DIFFERENCE(
+ * 	DIFFERENCE(
  *		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
  *		{HPwQV[X:A,B,-C TO D] DESC LIMIT(100)}
  *  )
@@ -171,7 +171,7 @@ class WdqQueryParser {
 			$pIds = explode( ',', $m[2] );
 			$inClause = self::makeINClause( 'id', $pIds );
 			$sql = "SELECT DISTINCT(out) AS out FROM (" .
-				"SELECT expand(inE($classes)) FROM Property WHERE $inClause)";
+				"SELECT expand(inE($classes)) FROM Property WHERE $inClause)\$RWHERE\$";
 			$qualiferPrefix = "out.claims[in.id.prefix('P')][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^HIaPV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
@@ -182,7 +182,7 @@ class WdqQueryParser {
 				$orClause[] = "(iid=$iId AND pid=$pId)";
 			}
 			$orClause = implode( ' OR ', $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE ($orClause)";
+			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE ($orClause)\$RKCOND\$";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
@@ -194,14 +194,14 @@ class WdqQueryParser {
 				$orClause[] = "(iid=$pId AND val=$val)";
 			}
 			$orClause = implode( ' OR ', $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE ($orClause)";
+			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE ($orClause)\$RKCOND\$";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
 			$where = self::parseRangeDive( 'val', $m[3] );
 			$order = isset( $m[4] ) ? $m[4] : null;
-			$sql = "SELECT DISTINCT(out) AS out FROM $class WHERE iid=$pId AND $where";
+			$sql = "SELECT DISTINCT(out) AS out FROM $class WHERE iid=$pId AND $where\$RKCOND\$";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
@@ -209,7 +209,7 @@ class WdqQueryParser {
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$where = self::parseAroundDive( $m[2] );
-			$sql = "SELECT DISTINCT(out) AS out FROM HPwCV WHERE iid=$pId AND $where";
+			$sql = "SELECT DISTINCT(out) AS out FROM HPwCV WHERE iid=$pId AND $where\$RKCOND\$";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
 			$iIds = explode( ',', $m[1] );
@@ -224,8 +224,8 @@ class WdqQueryParser {
 				$orClause[] = 'sitelinks CONTAINSVALUE ' .
 					self::unstripQuotedStrings( $valId, $map );
 			}
-			$in = implode( ' OR ', $orClause );
-			$sql = "SELECT DISTINCT(@RID) AS out FROM Item WHERE ($in)";
+			$orClause = implode( ' OR ', $orClause );
+			$sql = "SELECT DISTINCT(@RID) AS out FROM Item WHERE ($orClause)\$RKCOND\$";
 			$qualiferPrefix = null; // makes no sense
 			$wherePrefix = ''; // queries Item class, not edge class
 		} elseif ( preg_match(
@@ -259,7 +259,7 @@ class WdqQueryParser {
 				$sql = "SELECT @RID AS out FROM (" .
 					"TRAVERSE $tfields " .
 					"FROM (select FROM Item WHERE $inClause) " .
-					"WHILE (@class='Item' OR ($whileCond))" .
+					"WHILE (@class='Item' OR (($whileCond)\$RKCOND\$))" .
 					") WHERE @class='Item'";
 			} else {
 				// Just grab the root items
@@ -288,12 +288,19 @@ class WdqQueryParser {
 			);
 
 			if ( $rank === 'best' ) {
-				$sql .= " AND (best=1)";
+				$rankCond = "best=1";
 			} elseif ( isset( $rankMap[$rank] ) ) {
-				$sql .= " AND (rank={$rankMap[$rank]})";
+				$rankCond = "rank={$rankMap[$rank]}";
 			} else {
 				throw new ParseException( "Bad rank: '$rank'" );
 			}
+			$sql = str_replace(
+				array( '$RWHERE$', '$RKCOND$' ),
+				array( " WHERE $rankCond", " AND $rankCond" ),
+				$sql
+			);
+		} else {
+			$sql = str_replace( array( '$RKCOND$', '$RWHERE$' ), array( '', '' ), $sql );
 		}
 
 		$rest = trim( $rest );
@@ -505,31 +512,26 @@ class WdqQueryParser {
 	 * @return string
 	 */
 	protected static function parseRangeDive( $field, $s ) {
-		$in = array();
 		$where = array();
 
-		$float = self::RE_FLOAT;
-
 		$m = array();
+		$float = self::RE_FLOAT;
 		foreach ( explode( ',', $s ) as $v ) {
+			$v = trim( $v );
 			if ( preg_match( "/^$float\$/", $v ) ) {
-				$in[] = $v;
-			} elseif ( preg_match( "/^($float) TO ($float)\$/", $v, $m ) ) {
+				$where[] = "field=$v";
+			} elseif ( preg_match( "/^($float)\s+TO\s+($float)\$/", $v, $m ) ) {
 				$where[] = "($field BETWEEN {$m[1]} AND {$m[2]})";
 			} else {
 				throw new ParseException( "Unparsable: $v" );
 			}
 		}
 
-		if ( $in ) {
-			$where[] = self::makeINClause( $field, $in );
-		}
-
 		if ( !$where ) {
 			throw new ParseException( "Unparsable: $s" );
 		}
 
-		return implode( ' OR ', $where );
+		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
 	}
 
 	/**
@@ -546,6 +548,7 @@ class WdqQueryParser {
 
 		$m = array();
 		foreach ( explode( ',', $s ) as $v ) {
+			$v = trim( $v );
 			if ( preg_match( "/^AROUND ($float) ($float) ($pfloat)\$/", $v, $m ) ) {
 				list( , $lat, $lon, $dist ) = $m;
 				$where[] = "([lat,lon,\$spatial] NEAR [$lat,$lon,{\"maxDistance\":$dist}])";
@@ -558,7 +561,7 @@ class WdqQueryParser {
 			throw new ParseException( "Unparsable: $s" );
 		}
 
-		return implode( ' OR ', $where );
+		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
 	}
 
 	/**
