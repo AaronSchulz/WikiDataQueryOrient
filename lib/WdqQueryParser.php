@@ -157,6 +157,7 @@ class WdqQueryParser {
 		$filters = '';
 		$qualifiers = '';
 		$qualiferPrefix = '';
+		$wherePrefix = 'out.';
 
 		$s = trim( $s );
 
@@ -169,7 +170,8 @@ class WdqQueryParser {
 				: $m[1];
 			$pIds = explode( ',', $m[2] );
 			$inClause = self::makeINClause( 'id', $pIds );
-			$sql = "SELECT expand(inE($classes)) FROM Property WHERE $inClause";
+			$sql = "SELECT DISTINCT(out) AS out FROM (" .
+				"SELECT expand(inE($classes)) FROM Property WHERE $inClause)";
 			$qualiferPrefix = "out.claims[in.id.prefix('P')][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^HIaPV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
@@ -180,7 +182,7 @@ class WdqQueryParser {
 				$orClause[] = "(iid=$iId AND pid=$pId)";
 			}
 			$orClause = implode( ' OR ', $orClause );
-			$sql = "SELECT * FROM HIaPV WHERE ($orClause)";
+			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE ($orClause)";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
@@ -192,14 +194,14 @@ class WdqQueryParser {
 				$orClause[] = "(iid=$pId AND val=$val)";
 			}
 			$orClause = implode( ' OR ', $orClause );
-			$sql = "SELECT * FROM HPwSV WHERE ($orClause)";
+			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE ($orClause)";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
 			$where = self::parseRangeDive( 'val', $m[3] );
 			$order = isset( $m[4] ) ? $m[4] : null;
-			$sql = "SELECT * FROM $class WHERE iid=$pId AND $where";
+			$sql = "SELECT DISTINCT(out) AS out FROM $class WHERE iid=$pId AND $where";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
@@ -207,13 +209,14 @@ class WdqQueryParser {
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$where = self::parseAroundDive( $m[2] );
-			$sql = "SELECT * FROM HPwCV WHERE iid=$pId AND $where";
+			$sql = "SELECT DISTINCT(out) AS out FROM HPwCV WHERE iid=$pId AND $where";
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::makeINClause( 'id', $iIds );
 			$sql = "SELECT @RID AS out FROM Item WHERE $inClause";
 			$qualiferPrefix = null; // makes no sense
+			$wherePrefix = ''; // queries Item class, not edge class
 		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
 			$valIds = explode( ',', $m[1] );
 			$orClause = array();
@@ -222,8 +225,9 @@ class WdqQueryParser {
 					self::unstripQuotedStrings( $valId, $map );
 			}
 			$in = implode( ' OR ', $orClause );
-			$sql = "SELECT @RID AS out FROM Item WHERE ($in)";
+			$sql = "SELECT DISTINCT(@RID) AS out FROM Item WHERE ($in)";
 			$qualiferPrefix = null; // makes no sense
+			$wherePrefix = ''; // queries Item class, not edge class
 		} elseif ( preg_match(
 			"/^HIaPVWeb\[($dlist)\](?:\s+OUTGOING\[($dlist)\])?(?:\s+INCOMING\[($dlist)\])?\s*/", $s, $m )
 		) {
@@ -260,6 +264,7 @@ class WdqQueryParser {
 			} else {
 				// Just grab the root items
 				$sql = "SELECT @RID AS out FROM Item WHERE ($inClause)";
+				$wherePrefix = ''; // queries Item class, not edge class
 			}
 			$qualiferPrefix = null; // makes no sense
 		} else {
@@ -309,7 +314,7 @@ class WdqQueryParser {
 		if ( $token === 'WHERE' ) {
 			$rest = substr( $rest, strlen( $token ) );
 			$statement = self::consume( $rest, '()' );
-			$sql .= " AND (" . self::parseFilters( $statement, 'out.', $map ) . ")";
+			$sql .= " AND (" . self::parseFilters( $statement, $wherePrefix, $map ) . ")";
 		}
 
 		$rest = trim( $rest );

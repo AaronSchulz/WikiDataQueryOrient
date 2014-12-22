@@ -17,6 +17,7 @@ function main() {
 			'Authorization' => "Basic " . base64_encode( "$user:$password" )
 		)
 	) );
+	$m = array();
 	if ( preg_match( '/(?:^|;)OSESSIONID=([^;]+);/', $rhdrs['set-cookie'], $m ) ) {
 		$sessionId = $m[1];
 		print( "Using session ID '$sessionId'\n" );
@@ -38,7 +39,7 @@ function main() {
 		$sql = WdqQueryParser::parse( $query );
 		print( "WDQ -> OrientSQL:\n$sql\n\n" );
 
-		print( "Running (requesting from $url)...\n" );
+		print( "Running (querying $url)...\n" );
 		$start = microtime( true );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( array(
 			'method'  => 'GET',
@@ -50,17 +51,23 @@ function main() {
 
 		$response = json_decode( $rbody, true );
 		if ( $response === null ) {
-			print( "HTTP error ($rcode): could not decode response ($rerr).\n" );
+			print( "HTTP error ($rcode): could not decode response ($rerr).\n\n" );
 		} else {
 			$count = 0;
 			print( "Fetching results...\n" );
 			foreach ( $response['result'] as $record ) {
 				++$count;
-				print( json_encode( $record, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) . "\n" );
+				$obj = array();
+				foreach ( $record as $key => $value ) {
+					if ( $key[0] !== '@' ) {
+						$obj[$key] = $value;
+					}
+				}
+				$flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT;
+				print( json_encode( $obj, $flags ) . "\n" );
 			}
-			print( "Done.\n" );
+			print "Query had $count results\n\n";
 		}
-		print "Query had $count results\n\n";
 	}
 }
 
