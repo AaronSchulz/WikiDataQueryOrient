@@ -88,10 +88,9 @@ class WdqUtils {
 			if ( is_string( $value ) ) {
 				$ovalue = $value;
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
-				$value = rtrim( $value, '\\' ); // avoid exceptions
-				#$value = str_replace( '\u', 'u', $value ); // avoid exceptions
-				$value = addcslashes( $value, '"' );
-				$value = addcslashes( $value, '"' );
+				$value = rtrim( $value, '\\' );
+				// XXX: https://github.com/orientechnologies/orientdb/issues/2690
+				$value = str_replace( array( '"', '\u' ), array( '', 'u' ), $value );
 				if ( $value !== $ovalue ) {
 					print( "JSON: converted value '$ovalue' => '$value'.\n" );
 				}

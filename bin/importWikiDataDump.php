@@ -123,7 +123,7 @@ function main() {
 					print( 'Importing vertex for Property ' . $entity['id'] . " ($method)\n" );
 					$batch[] = $entity;
 				}
-				if ( count( $batch ) >= 10 ) {
+				if ( count( $batch ) >= 50 ) {
 					print( "Comitting...\n" );
 					$updater->importEntities( $batch, $method );
 					$batch = array();

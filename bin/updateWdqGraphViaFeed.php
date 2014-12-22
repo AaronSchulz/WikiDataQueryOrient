@@ -143,15 +143,15 @@ function main() {
 		print( "Updating graph...\n" );
 		foreach ( $applyChangesInOrder as $change ) {
 			list( $json, $isNew ) = $change;
-			$item = json_decode( $json, true );
-			if ( isset( $item['entity'] ) && isset( $item['redirect'] ) ) {
+			$entity = json_decode( $json, true );
+			if ( isset( $entity['entity'] ) && isset( $entity['redirect'] ) ) {
 				print( "Ignored entity redirect: $json\n" );
-			} elseif ( $item['type'] === 'item' ) {
-				$id = WdqUtils::wdcToLong( $item['id'] );
-				$updater->importItemVertex( $item, $isNew ? 'insert' : 'update' );
-				$updater->importItemPropertyEdges( $item, 'rebuild' );
-			} elseif ( $item['type'] === 'property' ) {
-				$updater->importPropertyVertex( $item, $isNew ? 'insert' : 'update' );
+			} elseif ( $entity['type'] === 'item' ) {
+				$id = WdqUtils::wdcToLong( $entity['id'] );
+				$updater->importEntities( array( $entity ), $isNew ? 'insert' : 'update' );
+				$updater->importItemPropertyEdges( $entity, 'rebuild' );
+			} elseif ( $entity['type'] === 'property' ) {
+				$updater->importEntities( array( $entity ), $isNew ? 'insert' : 'update' );
 			} else {
 				throw new Exception( "Got unkown item '$json'" );
 			}

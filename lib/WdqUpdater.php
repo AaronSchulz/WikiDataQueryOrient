@@ -34,7 +34,6 @@ class WdqUpdater {
 	 */
 	public function importEntities( array $entities, $update ) {
 		$sqlQueries = array();
-		$sqlQueries[] = 'begin';
 		foreach ( $entities as $entity ) {
 			if ( $entity['type'] === 'item' ) {
 				$sqlQueries[] = $this->importItemVertexSQL( $entity, $update );
@@ -42,9 +41,8 @@ class WdqUpdater {
 				$sqlQueries[] = $this->importPropertyVertexSQL( $entity, $update );
 			}
 		}
-		$sqlQueries[] = 'commit retry 100';
 
-		$this->tryCommand( $sqlQueries );
+		$this->tryCommand( $sqlQueries, false, true );
 	}
 
 	/**
@@ -54,7 +52,7 @@ class WdqUpdater {
 	 * @param string $update (update/insert/upsert)
 	 * @return string
 	 */
-	public function importItemVertexSQL( array $item, $update ) {
+	protected function importItemVertexSQL( array $item, $update ) {
 		$siteLinks = array(); // map of (<site> => <site>#<title>)
 		// Flatten site links to a 1-level list for indexing
 		if ( isset( $item['sitelinks'] ) ) {
@@ -80,7 +78,6 @@ class WdqUpdater {
 					unset( $statement['type'] ); // always "statement"
 					unset( $statement['references'] ); // unused
 					unset( $statement['mainsnak']['property'] );
-					unset( $statement['mainsnak']['hash'] );
 					// Use the cleaned up statement
 					$claims[$propertyId][$id] = $statement;
 				}
@@ -151,7 +148,7 @@ class WdqUpdater {
 	 * @param string $update (insert/update/upsert)
 	 * @return string
 	 */
-	public function importPropertyVertexSQL( array $item, $update ) {
+	protected function importPropertyVertexSQL( array $item, $update ) {
 		$coreItem = array(
 			'id'       => (float) WdqUtils::wdcToLong( $item['id'] ),
 			'datatype' => $item['datatype']
@@ -251,7 +248,6 @@ class WdqUpdater {
 		}
 
 		$sqlQueries = array();
-		$sqlQueries[] = 'begin';
 		// Destroy all prior outgoing edges
 		if ( $method !== 'bulk_init' ) {
 			if ( $classes === null || count( $classes ) ) {
@@ -278,7 +274,6 @@ class WdqUpdater {
 				"to (select from $toClass where id='{$dvEdge['iid']}') content " .
 				WdqUtils::toJSON( $dvEdge );
 		}
-		$sqlQueries[] = 'commit retry 100';
 
 		$this->tryCommand( $sqlQueries );
 	}
@@ -385,28 +380,51 @@ class WdqUpdater {
 
 	/**
 	 * @param string|array $sql
+	 * @param bool $atomic
 	 * @param bool $ignore_dups
 	 * @return array|null
 	 * @throws Exception
 	 */
-	public function tryCommand( $sql, $ignore_dups = true ) {
-		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( array(
+	public function tryCommand( $sql, $atomic = true, $ignore_dups = true ) {
+		if ( is_array( $sql ) && $atomic ) {
+			$sqlBatch = array_merge( array( 'begin' ), $sql, array( 'commit retry 100' ) );
+		} else {
+			$sqlBatch = $sql;
+		}
+
+		$req = array(
 			'method'  => 'POST',
 			'url'     => "{$this->url}/batch/WikiData",
 			'headers' => array(
 				'Content-Type' => "application/json",
 				'Cookie'       => "OSESSIONID={$this->getSessionId()}" ),
 			'body'    => json_encode( array(
-				'transaction' => false,
+				'transaction' => true,
 				'operations'  => array(
 					array(
 						'type'     => 'script',
 						'language' => 'sql',
-						'script'   => $sql
+						'script'   => $sqlBatch
 					)
 				)
 			) )
-		) );
+		);
+
+		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( $req );
+		// Retry once for random failures (or when the payload is too big)...
+		if ( $rcode != 200 && is_array( $sqlBatch ) ) {
+			if ( $atomic ) {
+				print( "Retrying batch command.\n" );
+				list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( $req );
+			} else {
+				print( "Retrying each batch command.\n" );
+				// Break down the commands if possible, which gets past some failures
+				foreach ( $sqlBatch as $sqlCmd ) {
+					$this->tryCommand( $sqlCmd, false, $ignore_dups );
+				}
+				return null;
+			}
+		}
 
 		if ( $rcode != 200 ) {
 			if ( $ignore_dups && strpos( $rbody, 'ORecordDuplicatedException' ) !== false ) {
