@@ -169,7 +169,7 @@ class WdqQueryParser {
 				? 'HPwIV,HPwQV,HPwCV,HPwSV,HPwTV,HPwNoV,HPwSomeV'
 				: $m[1];
 			$pIds = explode( ',', $m[2] );
-			$inClause = self::makeINClause( 'id', $pIds );
+			$inClause = self::sqlIN( 'id', $pIds );
 			$sql = "SELECT DISTINCT(out) AS out FROM (" .
 				"SELECT expand(inE($classes)) FROM Property WHERE $inClause)\$RWHERE\$";
 			$qualiferPrefix = "out.claims[in.id.prefix('P')][sid]['qualifiers'].";
@@ -213,7 +213,7 @@ class WdqQueryParser {
 			$qualiferPrefix = "out.claims['P$pId'][sid]['qualifiers'].";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
 			$iIds = explode( ',', $m[1] );
-			$inClause = self::makeINClause( 'id', $iIds );
+			$inClause = self::sqlIN( 'id', $iIds );
 			$sql = "SELECT @RID AS out FROM Item WHERE $inClause";
 			$qualiferPrefix = null; // makes no sense
 			$wherePrefix = ''; // queries Item class, not edge class
@@ -232,8 +232,9 @@ class WdqQueryParser {
 			"/^HIaPVWeb\[($dlist)\](?:\s+OUTGOING\[($dlist)\])?(?:\s+INCOMING\[($dlist)\])?\s*/", $s, $m )
 		) {
 			$iIds = explode( ',', $m[1] );
-			$pIdsFD = isset( $m[2]) ? explode( ',', $m[2] ) : array();
-			$pIdsRV = isset( $m[3]) ? explode( ',', $m[3] ) : array();
+			// https://bugs.php.net/bug.php?id=51881
+			$pIdsFD = empty( $m[2] ) ? array() : explode( ',', $m[2] );
+			$pIdsRV = empty( $m[3] ) ? array() : explode( ',', $m[3] );
 
 			$tfields = array();
 			$whileCond = array();
@@ -241,20 +242,18 @@ class WdqQueryParser {
 				$tfields[] = 'Item.out_HIaPV';
 				$tfields[] = 'HIaPV.in';
 				// Edges followed in forwards direction are filtered on certain PIDs
-				$whileCond[] = '(out=$parent.$current AND ' .
-					self::makeINClause( 'pid', $pIdsFD ) . ')';
+				$whileCond[] = '(out=$parent.$current AND ' . self::sqlIN( 'pid', $pIdsFD ) . ')';
 			}
 			if ( $pIdsRV ) {
 				$tfields[] = 'Item.in_HIaPV';
 				$tfields[] = 'HIaPV.out';
 				// Edges followed in reverse direction are filtered on certain PIDs
-				$whileCond[] = '(in=$parent.$current AND ' .
-					self::makeINClause( 'pid', $pIdsRV ) . ')';
+				$whileCond[] = '(in=$parent.$current AND ' . self::sqlIN( 'pid', $pIdsRV ) . ')';
 			}
 			$tfields = implode( ',', $tfields );
 			$whileCond = implode( ' OR ', $whileCond );
 
-			$inClause = self::makeINClause( 'id', $iIds );
+			$inClause = self::sqlIN( 'id', $iIds );
 			if ( $tfields ) {
 				$sql = "SELECT @RID AS out FROM (" .
 					"TRAVERSE $tfields " .
@@ -569,7 +568,7 @@ class WdqQueryParser {
 	 * @param array $vals
 	 * @return string
 	 */
-	protected static function makeINClause( $field, array $vals ) {
+	protected static function sqlIN( $field, array $vals ) {
 		// https://github.com/orientechnologies/orientdb/issues/3150
 		return count( $vals ) == 1
 			? "$field=" . $vals[0]

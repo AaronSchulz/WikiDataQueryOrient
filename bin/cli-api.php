@@ -36,7 +36,12 @@ function main() {
 			}
 			$query .= $line;
 		}
-		$sql = WdqQueryParser::parse( $query );
+		try {
+			$sql = WdqQueryParser::parse( $query );
+		} catch ( ParseException $e ) {
+			print( "Caught: {$e->getMessage()}\n" );
+			continue;
+		}
 		print( "WDQ -> OrientSQL:\n$sql\n\n" );
 
 		print( "Running (querying $url)...\n" );

@@ -22,7 +22,6 @@ $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[311:"O\'reilly Pub\""] WHERE(NOT (HIaPV[31:1,2,3]))}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[31:1.0,2,33 TO 63] RANK(best)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwTV[131:1.0,2,-1111133 TO 1111163]}';
-$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwTV[131:1.0,2,-1111133 TO 1111163] DESC}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwTV[131:1.0,2,-1111133 TO 1111163] DESC LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwCV[625:AROUND 38.897669444444 -77.03655 2] LIMIT(10)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwCV[625:AROUND 38.897669444444 -77.03655 2,AROUND -1.1 -2.2 3.3] RANK(best) LIMIT(5)}';
@@ -33,6 +32,8 @@ $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM INTERS
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM DIFFERENCE( {HIaPV[31:1,2,3]} {HPwCV[131:AROUND 1.1 -2.2 3.3,AROUND -1.1 -2.2 3.3]} )';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM UNION( {HIaPV[31:1,2,3]} {HPwCV[131:AROUND 1.1 -2.2 3.3,AROUND -1.1 -2.2 3.3]} )';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM UNION( {HIaPV[31:1,2,3]} INTERSECT( {HPwSV[311:"cat","says","meow"]} {HPwQV[31:1.0,2,33 TO 63]} ) )';
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPVWeb[23505] OUTGOING[40] RANK(best)}';
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPVWeb[23505] INCOMING[40] RANK(best)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPVWeb[30] OUTGOING[150] INCOMING[17,131]}';
 
 foreach ( $queries as $query ) {
