@@ -275,7 +275,7 @@ class WdqUpdater {
 				WdqUtils::toJSON( $dvEdge );
 		}
 
-		$this->tryCommand( $sqlQueries );
+		$this->tryCommand( $sqlQueries, false );
 	}
 
 	/**
@@ -382,7 +382,6 @@ class WdqUpdater {
 	 * @param string|array $sql
 	 * @param bool $atomic
 	 * @param bool $ignore_dups
-	 * @return array|null
 	 * @throws Exception
 	 */
 	public function tryCommand( $sql, $atomic = true, $ignore_dups = true ) {
@@ -399,7 +398,7 @@ class WdqUpdater {
 				'Content-Type' => "application/json",
 				'Cookie'       => "OSESSIONID={$this->getSessionId()}" ),
 			'body'    => json_encode( array(
-				'transaction' => true,
+				'transaction' => $atomic,
 				'operations'  => array(
 					array(
 						'type'     => 'script',
@@ -422,22 +421,20 @@ class WdqUpdater {
 				foreach ( $sqlBatch as $sqlCmd ) {
 					$this->tryCommand( $sqlCmd, false, $ignore_dups );
 				}
-				return null;
+				return;
 			}
 		}
 
 		if ( $rcode != 200 ) {
 			if ( $ignore_dups && strpos( $rbody, 'ORecordDuplicatedException' ) !== false ) {
-				return null;
+				return;
 			}
 			$errSql = is_array( $sql ) ? implode( "\n", $sql ) : $sql;
 			print( "Error on command:\n$errSql\n\n" );
 			throw new Exception( "Command failed ($rcode). Got:\n$rbody" );
 		}
 
-		$response = json_decode( $rbody, true );
-
-		return $response['result'];
+		return;
 	}
 
 	/**

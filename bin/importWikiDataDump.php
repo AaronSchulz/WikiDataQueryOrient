@@ -133,6 +133,7 @@ function main() {
 			}
 		);
 		if ( count( $batch ) ) {
+			print( "Comitting...\n" );
 			$updater->importEntities( $batch, $method );
 			$batch = array();
 		}
