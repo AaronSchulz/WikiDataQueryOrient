@@ -39,6 +39,8 @@ class WdqUpdater {
 				$sqlQueries[] = $this->importItemVertexSQL( $entity, $update );
 			} elseif ( $entity['type'] === 'property' ) {
 				$sqlQueries[] = $this->importPropertyVertexSQL( $entity, $update );
+			} else {
+				trigger_error( "Unrecognized entity of type '{$entity['type']}'." );
 			}
 		}
 
@@ -67,44 +69,21 @@ class WdqUpdater {
 				$labels[$lang] = $label['value'];
 			}
 		}
-		// Include the claims for JSON document query filtering
-		$claims = array();
-		if ( isset( $item['claims'] ) ) {
-			foreach ( $item['claims'] as $propertyId => $statements ) {
-				foreach ( $statements as $statement ) {
-					$id = $statement['id'];
-					// Remove redundant or useless field to save space
-					unset( $statement['id'] ); // used as key
-					unset( $statement['type'] ); // always "statement"
-					unset( $statement['references'] ); // unused
-					unset( $statement['mainsnak']['property'] );
-					// Use the cleaned up statement
-					$claims[$propertyId][$id] = $statement;
-				}
-			}
-		}
-		// Include the property IDs (pids) referenced for tracking
+
 		$coreItem = array(
 			'id'        => (float) WdqUtils::wdcToLong( $item['id'] ),
-			'labels'    => $labels ? $labels : (object)array(),
-			'claims'    => $claims ? $claims : (object)array(),
-			'sitelinks' => $siteLinks ? $siteLinks : (object)array(),
-		) + $this->getReferenceIdSet( $claims );
+			'labels'    => $labels ? (object)$labels : (object)array(),
+			'sitelinks' => $siteLinks ? (object)$siteLinks : (object)array(),
+		);
+
+		// Include the property IDs (pids) referenced for tracking
+		if ( isset( $item['claims'] ) ) {
+			$coreItem += $this->getReferenceIdSet( $item['claims'] );
+		}
 
 		if ( $update === 'update' || $update === 'upsert' ) {
 			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
-			$set = array();
-			foreach ( $coreItem as $key => $value ) {
-				if ( is_float( $value ) ) {
-					$set[] = "$key=$value";
-				} elseif ( is_scalar( $value ) ) {
-					$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
-				} else {
-					$set[] = "$key=" . WdqUtils::toJSON( $value );
-				}
-			}
-			$set = implode( ', ', $set );
-
+			$set = $this->sqlSet( $coreItem );
 			return "update Item set $set where id={$coreItem['id']}";
 		}
 
@@ -156,17 +135,7 @@ class WdqUpdater {
 
 		if ( $update === 'update' || $update === 'upsert' ) {
 			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
-			$set = array();
-			foreach ( $coreItem as $key => $value ) {
-				if ( $key === 'id' ) { // PK
-					continue;
-				} elseif ( is_scalar( $value ) ) {
-					$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
-				} else {
-					$set[] = "$key=" . WdqUtils::toJSON( $value );
-				}
-			}
-			$set = implode( ',', $set );
+			$set = $this->sqlSet( $coreItem );
 			return "update Property set $set where id={$coreItem['id']}";
 		}
 
@@ -187,6 +156,8 @@ class WdqUpdater {
 	 */
 	public function importItemPropertyEdges( array $item, $method, array $classes = null ) {
 		if ( !isset( $item['claims'] ) ) {
+			return; // nothing to do
+		} elseif ( $classes !== null && !count( $classes ) ) {
 			return; // nothing to do
 		}
 
@@ -210,6 +181,7 @@ class WdqUpdater {
 			}
 		}
 
+		$newEdgeSids = array(); // map of (sid => 1)
 		$dvEdges = array(); // list of data value statements (maps with class/val/rank)
 		foreach ( $item['claims'] as $propertyId => $statements ) {
 			$pId = WdqUtils::wdcToLong( $propertyId );
@@ -240,6 +212,10 @@ class WdqUpdater {
 					$edge['rank'] = $rankMap[$statement['rank']];
 					$edge['best'] = $edge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
 					$edge['sid'] = $statement['id'];
+					$edge['qlfrs'] = isset( $statement['qualifiers'] )
+						? (object)$statement['qualifiers']
+						: (object)array();
+					$newEdgeSids[$edge['sid']] = 1;
 				}
 				unset( $edge );
 
@@ -248,17 +224,28 @@ class WdqUpdater {
 		}
 
 		$sqlQueries = array();
-		// Destroy all prior outgoing edges
+
+		// Delete obsolete outgoing edges...
+		$existingEdgeSids = array(); // map of (sid => #RID)
 		if ( $method !== 'bulk_init' ) {
-			if ( $classes === null || count( $classes ) ) {
-				$sql = "delete edge from (select from Item where id=$qId)";
+			// Get the prior edges SIDs/#RIDs
+			$res = $this->tryQuery(
+				"select sid,@RID from (select expand(outE()) from Item where id=$qId)" );
+			foreach ( $res as $record ) {
+				$existingEdgeSids[$record['sid']] = $record['RID'];
+			}
+			$deleteSids = array_diff_key( $existingEdgeSids, $newEdgeSids );
+			// Destroy any prior outgoing edges with obsolete SIDs
+			foreach ( $deleteSids as $sid => $rid ) {
+				$sql = "delete edge $rid";
 				if ( $classes ) {
 					$sql .= ' where @class in [' . implode( ',', $classes ) . ']';
 				}
 				$sqlQueries[] = $sql;
 			}
 		}
-		// Create all of the new outgoing edges
+
+		// Create/update all of the new outgoing edges...
 		foreach ( $dvEdges as $dvEdge ) {
 			if ( $classes && !in_array( $dvEdge['class'], $classes ) ) {
 				continue; // skip this edge class
@@ -268,11 +255,19 @@ class WdqUpdater {
 			$toClass = $dvEdge['toClass'];
 			unset( $dvEdge['toClass'] );
 
-			$sqlQueries[] =
-				"create edge $class " .
-				"from (select from Item where id='$qId') " .
-				"to (select from $toClass where id='{$dvEdge['iid']}') content " .
-				WdqUtils::toJSON( $dvEdge );
+			if ( isset( $existingEdgeSids[$dvEdge['sid']] ) ) {
+				// If an edge was found with the SID, then update it...
+				$rid = $existingEdgeSids[$dvEdge['sid']];
+				$set = $this->sqlSet( $dvEdge );
+				$sqlQueries[] = "update $rid set $set";
+			} else {
+				// If no edge was found with the SID, then make a new one...
+				$sqlQueries[] =
+					"create edge $class " .
+					"from (select from Item where id=$qId) " .
+					"to (select from $toClass where id={$dvEdge['iid']}) content " .
+					WdqUtils::toJSON( $dvEdge );
+			}
 		}
 
 		$this->tryCommand( $sqlQueries, false );
@@ -385,6 +380,10 @@ class WdqUpdater {
 	 * @throws Exception
 	 */
 	public function tryCommand( $sql, $atomic = true, $ignore_dups = true ) {
+		if ( is_array( $sql ) && !$sql ) {
+			return; // nothing to do
+		}
+
 		if ( is_array( $sql ) && $atomic ) {
 			$sqlBatch = array_merge( array( 'begin' ), $sql, array( 'commit retry 100' ) );
 		} else {
@@ -455,6 +454,10 @@ class WdqUpdater {
 		}
 
 		$response = json_decode( $rbody, true );
+		if ( $response === null ) {
+			$tsql = substr( $sql, 0, 255 );
+			throw new Exception( "Bad JSON response.\n\nSent:\n$tsql...\n\nGot:\n$rbody" );
+		}
 
 		return $response['result'];
 	}
@@ -481,5 +484,25 @@ class WdqUpdater {
 		}
 
 		return $this->sessionId;
+	}
+
+	/**
+	 * @param array $object
+	 * @return string
+	 */
+	protected function sqlSet( array $object ) {
+		$set = array();
+		foreach ( $object as $key => $value ) {
+			if ( is_float( $value ) || is_int( $value ) ) {
+				$set[] = "$key=$value";
+			} elseif ( is_scalar( $value ) ) {
+				// https://github.com/orientechnologies/orientdb/issues/2424
+				$value = str_replace( "\n", " ", $value );
+				$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
+			} else {
+				$set[] = "$key=" . WdqUtils::toJSON( $value );
+			}
+		}
+		return implode( ', ', $set );
 	}
 }

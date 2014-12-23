@@ -2,13 +2,13 @@
 
 require_once( __DIR__ . '/../lib/autoload.php' );
 
-$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HP[279] QUALIFY(HPwQV[1414:89-90,1]) LIMIT(5)}';
-$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims["P279"] AS claims) FROM {HP[31,279] LIMIT(5)}';
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwAnyV[279] QUALIFY(HPwQV[1414:89-90,1]) LIMIT(5)}';
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwAnyV[31,279] LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPV[31:2590631] LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPV[31:5] LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {items[1339,350,34,64,747,24242,636,3] WHERE(haslinks["enwiki"])}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {linkedto["enwiki#Universe"]}';
-$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,sitelinks["enwiki"] AS sitelink) FROM {HP[175,275,757] LIMIT(10)}';
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,sitelinks["enwiki"] AS sitelink) FROM {HPwAnyV[175,275,757] LIMIT(10)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSomeV[1036,237] LIMIT(10)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSomeV[1036,237] RANK(best) LIMIT(10)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwNoV[102,47] RANK(best) LIMIT(10)}';
@@ -21,8 +21,8 @@ $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[311:"cat","says","meow"]}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[311:"O\'reilly Pub\""] WHERE(NOT (HIaPV[31:1,2,3]))}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[31:1.0,2,33 TO 63] RANK(best)}';
-$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwTV[131:1.0,2,-1111133 TO 1111163]}';
-$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwTV[131:1.0,2,-1111133 TO 1111163] DESC LIMIT(5)}';
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwTV[131:+00000001949-08-09T00:00:00Z TO +00000001959-08-09T00:00:00Z]}';
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwTV[131:+00000001969-08-09T00:00:00Z TO +00000001979-08-09T00:00:00Z,+00000001980-01-01T00:00:00Z TO +00000001990-12-30T00:00:00Z] DESC LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwCV[625:AROUND 38.897669444444 -77.03655 2] LIMIT(10)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwCV[625:AROUND 38.897669444444 -77.03655 2,AROUND -1.1 -2.2 3.3] RANK(best) LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPV[31:1,2,3] WHERE(HPwQV[1:3.141596] OR HPwQV[353:2525])}';

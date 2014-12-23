@@ -15,7 +15,6 @@ Importing scripts and query helper classes for storing WikiData information in O
 3)  Edit the server.sh file (or bat on Windows).
 	Bump the JVM heap size to 2128m and set MAXDISKCACHE=-Dstorage.diskCache.bufferSize=8192.
 	Set -XX:+UseConcMarkSweepGC in the java options while at it.
-	You may set -Dstorage.wal.syncOnPageFlush=false (remove after import).
 
 4) 	Edit the server config XML file, setting log.file.level to "warning".
 
@@ -44,6 +43,7 @@ All of this is very unfinished and WIP :)
 
 *** Console ***
 
+connect remote:localhost root root
 connect remote:127.0.0.1/WikiData admin admin
 
 *** Gremlin ***

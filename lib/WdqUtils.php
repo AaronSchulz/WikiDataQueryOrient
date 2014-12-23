@@ -21,7 +21,7 @@ class WdqUtils {
 	 */
 	public static function getUnixTimeFromISO8601( $time ) {
 		$m = array();
-		$ok = preg_match( '#^(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z#', $time, $m );
+		$ok = preg_match( '#^(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z$#', $time, $m );
 		if ( !$ok ) {
 			trigger_error( "Got unparsable date '$time'." );
 			return false;
