@@ -127,14 +127,8 @@ class WdqUpdater {
 				$sClaim = $this->getSimpleSnak( $statement['mainsnak'] );
 				$sClaim['rank'] = self::$rankMap[$statement['rank']];
 				$sClaim['best'] = self::$rankMap[$statement['rank']] >= $maxRank ? 1 : 0;
-
-				$qlfrs = isset( $statement['qualifiers'] ) ? $statement['qualifiers'] : array();
-				foreach ( $qlfrs as $qPropertyId => $qSnaks ) {
-					$qPId = (string) WdqUtils::wdcToLong( $qPropertyId );
-					$sClaim['qlfrs'][$qPId] = array();
-					foreach ( $qSnaks as $qSnak ) {
-						$sClaim['qlfrs'][$qPId][] = $this->getSimpleSnak( $qSnak );
-					}
+				if ( isset( $statement['qualifiers'] ) ) {
+					$sClaim['qlfrs'] = $this->getSimpleQualifiers( $statement['qualifiers'] );
 				}
 
 				$sClaims[$pId][] = $sClaim;
@@ -153,6 +147,8 @@ class WdqUpdater {
 	}
 
 	/**
+	 * Get a streamlined snak array
+	 *
 	 * @param array $snak
 	 * @return array
 	 */
@@ -164,11 +160,11 @@ class WdqUpdater {
 
 			$dataValue = null;
 			if ( $valueType === 'wikibase-entityid' ) {
-				$dataValue = $snak['datavalue']['value']['numeric-id'];
+				$dataValue = (float) $snak['datavalue']['value']['numeric-id'];
 			} elseif ( $valueType === 'time' ) {
 				$dataValue = $snak['datavalue']['value']['time'];
 			} elseif ( $valueType === 'quantity' ) {
-				$dataValue = (float)$snak['datavalue']['value']['amount'];
+				$dataValue = (float) $snak['datavalue']['value']['amount'];
 			} elseif ( $valueType === 'globecoordinate' ) {
 				$dataValue = array(
 					'lat' => $snak['datavalue']['value']['latitude'],
@@ -183,6 +179,26 @@ class WdqUpdater {
 		}
 
 		return $simpleSnak;
+	}
+
+	/**
+	 * Get a streamlined qualifier array
+	 *
+	 * @param array $qualifiers
+	 * @return type
+	 */
+	protected function getSimpleQualifiers( array $qualifiers ) {
+		$simpeQlfrs = array();
+
+		foreach ( $qualifiers as $qPropertyId => $qSnaks ) {
+			$qPId = (string) WdqUtils::wdcToLong( $qPropertyId );
+			$simpeQlfrs[$qPId] = array();
+			foreach ( $qSnaks as $qSnak ) {
+				$simpeQlfrs[$qPId][] = $this->getSimpleSnak( $qSnak );
+			}
+		}
+
+		return $simpeQlfrs;
 	}
 
 	/**
@@ -297,7 +313,7 @@ class WdqUpdater {
 					$edge['best'] = $edge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
 					$edge['sid'] = $statement['id'];
 					$edge['qlfrs'] = isset( $statement['qualifiers'] )
-						? (object)$statement['qualifiers']
+						? (object)$this->getSimpleQualifiers( $statement['qualifiers'] )
 						: (object)array();
 					$newEdgeSids[$edge['sid']] = 1;
 				}

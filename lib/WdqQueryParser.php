@@ -17,26 +17,27 @@
  *		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
  *		{HPwQV[X:A,B,-C TO D] DESC LIMIT(100)} )
  * 	UNION(
- * 		{HIaPV[X:A,B,C] WHERE(HIaPV[X:A,C,D] AND (HPwQV[X:Y] OR HPwQV[X:Y]))}
- * 		{HPwQV[X:A,B,-C TO D] QUALIFY(HPwTV[P,X,Y])}
+ * 		{HIaPV[X:A,B,C] WHERE(HPwV[X:A,C,D] AND (HPwV[X:Y TO Z] OR HPwV[X:Y]))}
+ * 		{HPwQV[X:A,B,-C TO D] QUALIFY(HPwV[P,X,Y])}
  * 		INTERSECT(
- * 			{HIaPV[X:Y] WHERE(HIaPV[X:Y] AND (HIaPV[X:Y] OR HIaPV[X:Y]))}
- * 			{HIaPV[X:Y] RANK(best) WHERE(HIaPV[X:Y])}
+ * 			{HIaPV[X:Y] WHERE(HPwV[X:Y] AND (HPwV[X:Y] OR HPwV[X:Y]))}
+ * 			{HIaPV[X:Y] RANK(best) WHERE(HPwV[X:Y])}
  * 			{HIaPV[X:Y]}
  * 			{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]} )
- *      {HIaPV[X:Y] WHERE(NOT (HIaPV[X:A,C,D]))}
+ *      {HIaPV[X:Y] WHERE(NOT (HPwV[X:A,C,D]))}
  * 		{HPwQV[X:Y TO Z] ASC RANK(preferred) LIMIT(10)}
- * 		{HIaPVTree[X:Y] QUALIFY(HPwQV[X:Y]) AND (HPwQV[X:Y] OR HPwQV[X:Y])) WHERE(link[X,Y])}
- *		{HIaPV[X:Y] QUALIFY(NOT (HIaPV[X:A,C,D]))} )
+ * 		{HIaPVTree[X:Y] QUALIFY(HPwV[X:Y]) AND (HPwV[X:Y] OR HPwV[X:Y])) WHERE(link[X,Y])}
+ *		{HIaPV[X:Y] QUALIFY(NOT (HPwV[X:A,C,D]))} )
  * 	INTERSECT(
  * 		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y] RANK(best)}
- * 		{HPwAnyV[X,Y,Z] RANK(preferred) QUALIFY(HPwSV[X:"Y"])}
- * 		{HPwCV[X:(AROUND A B C),(AROUND A B C)] QUALIFY(HIaPV[P:X]) WHERE(link[X,Y])} )
+ * 		{HPwAnyV[X,Y,Z] RANK(preferred) QUALIFY(HPwV[X:"Y"])}
+ * 		{HPwCV[X:(AROUND A B C),(AROUND A B C)] QUALIFY(HPwV[P:X]) WHERE(link[X,Y])} )
  * )
  */
 class WdqQueryParser {
 	const RE_FLOAT = '[-+]?[0-9]*\.?[0-9]+';
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
+	const RE_DATE = '(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z';
 	const FLD_BASIC = '/^(id|sitelinks|labels|claims)$/';
 	const FLD_MAP = '/^((?:sitelinks|labels|claims)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
@@ -166,9 +167,9 @@ class WdqQueryParser {
 		$s = trim( $s );
 
 		// Qualifier conditions normally applied in edge class WHERE
-		$qualiferPrefix = 'qlfrs.';
+		$qualiferPrefix = 'qlfrs';
 		// Filter conditions normally applied in edge class WHERE
-		$filteringPrefix = 'out.';
+		$filteringPrefix = 'out.claims';
 
 		$m = array();
 		$dlist = '(?:\d+,?)+';
@@ -364,7 +365,7 @@ class WdqQueryParser {
 				$operator = $m[1];
 				$rest = substr( $rest, strlen( $m[0] ) - 1 );
 				$statement = self::consume( $rest , '()' );
-				$where[] = 'NOT ' . self::parseFilter( $statement, $fldPrefix, $map );
+				$where[] = 'NOT (' . self::parseFilter( $statement, $fldPrefix, $map ) . ')';
 			} elseif ( preg_match( '/^(AND|OR)\s/', $rest, $m ) ) {
 				if ( $junction && $m[1] !== $junction ) {
 					// "(A AND B OR C)" is confusing and requires precendence order
@@ -373,9 +374,10 @@ class WdqQueryParser {
 				$junction = $m[1];
 				$rest = substr( $rest, strlen( $m[0] ) );
 			} else {
-				$token = substr( $rest, 0, strcspn( $rest, " \t\n\r" ) );
+				$token = substr( $rest, 0, strcspn( $rest, " \t\n\r[" ) );
 				$rest = substr( $rest, strlen( $token ) );
-				$where[] = self::parseFilter( $token, $fldPrefix, $map );
+				$args = self::consume( $rest, '[]' );
+				$where[] = self::parseFilter( "{$token}[{$args}]", $fldPrefix, $map );
 			}
 			$rest = ltrim( $rest );
 		}
@@ -409,76 +411,64 @@ class WdqQueryParser {
 
 		$m = array();
 		$float = self::RE_FLOAT;
+		$date = self::RE_DATE;
 		$dlist = '(?:\d+,?)+';
 		// @note: in OrientDB, if field b is an array, then a.b.c=5 scans all
 		// the items in b to see if any has c=5. This applies to qualifiers.PX
 		// and searches on other properties than the one the index was used for.
 		if ( preg_match( "/^(HPwNoV|HPwSomeV|HPwAnyV)\[($dlist)\]$/", $s, $m ) ) {
-			$classes = ( $m[1] === 'HPwAnyV' )
-				? array( 'HPwIV', 'HPwQV', 'HPwCV', 'HPwSV', 'HPwTV', 'HPwSomeV' )
-				: array( $m[1] );
-			$pIds = $m[2];
+			$class = $m[1];
+			if ( $class === 'HPwNoV' ) {
+				$stype = "['novalue']";
+			} elseif ( $class === 'HPwSomeV' ) {
+				$stype = "['somevalue']";
+			} else {
+				$stype = "['value','somevalue']";
+			}
 			$orClause = array();
-			foreach ( $classes as $class ) {
-				$orClause[] = "{$fldPrefix}out_{$class}.iid in [$pIds]";
+			foreach ( explode( ',', $m[2] ) as $pId ) {
+				$orClause[] = "{$fldPrefix}['$pId'] contains (snaktype in $stype)";
 			}
 			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
-		} elseif ( preg_match( "/^HIaPV\[(\d+):((\d+,?)+)\]$/", $s, $m ) ) {
-			$pId = $m[1];
-			$iIds = $m[2];
-			$where[] = "({$fldPrefix}out_HIaPV[pid=$pId][iid in [$iIds]])";
-		} elseif ( preg_match( "/^HPwSV\[(\d+):((\\$\d+,?)+)\]$/", $s, $m ) ) {
-			$pId = $m[1];
-			$vals = $m[2];
-			$where[] = "({$fldPrefix}out_HPwSV[iid=$pId][val in [$vals]])";
-		} elseif ( preg_match( "/^HPwQV\[(\d+):([^]]+)\]$/", $s, $m ) ) {
+		} elseif ( preg_match( "/^HPwV\[(\d+):([^]]+)\]$/", $s, $m ) ) {
 			$pId = $m[1];
 			$orClause = array();
 			foreach ( explode( ',', $m[2] ) as $val ) {
-				if ( preg_match( "/^$float\s+TO\s+$float$/", $val, $m ) ) {
+				if ( preg_match( "/^($float)\s+TO\s+($float)$/", $val, $m ) ) {
 					list( , $a, $b ) = $m;
-					$orClause[] = "{$fldPrefix}out_HPwQV[iid=$pId][val BETWEEN $a AND $b]";
+					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue between $a and $b)";
 				} elseif ( preg_match( "/^$float$/", $val ) ) {
-					$orClause[] = "{$fldPrefix}out_HPwQV[iid=$pId][val=$val]";
-				}
-			}
-			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
-		} elseif ( preg_match( "/^HPwTV\[(\d+):([^\]]+)\]$/", $s, $m ) ) {
-			$pId = $m[1];
-			$orClause = array();
-			foreach ( explode( ',', $m[2] ) as $val ) {
-				if ( preg_match( "/^([^\s]+)\s+TO\s+([^\s]+)$/", $val, $m ) ) {
-					list( , $at, $bt ) = $m;
-					$at = WdqUtils::getUnixTimeFromISO8601( $at );
-					$bt = WdqUtils::getUnixTimeFromISO8601( $bt );
-					if ( $at === false || $bt === false ) {
-						throw new ParseException( "Unparsable timestamps: $val" );
-					}
-					$orClause[] = "{$fldPrefix}out_HPwTV[iid=$pId][val BETWEEN $at AND $bt]";
+					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue = $val)";
+				} elseif ( preg_match( "/^($date)\s+TO\s+($date)/", $val, $m ) ) {
+					list( , $a, $b ) = $m;
+					// Dates are like -20001-01-01T00:00:00Z and +20001-01-01T00:00:00Z
+					// and can thus be compared lexographically for simplicity
+					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue between '$a' and '$b')";
+				} elseif ( preg_match( "/^$date$/", $val ) ) {
+					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue = '$val')";
+				} elseif ( preg_match( "/^\$\d+$/", $val ) ) {
+					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue = '$val')";
 				} else {
-					$t = WdqUtils::getUnixTimeFromISO8601( $val );
-					if ( $t === false ) {
-						throw new ParseException( "Unparsable timestamps: $val" );
-					}
-					$orClause[] = "{$fldPrefix}out_HPwTV[iid=$pId][val=$t]";
+					throw new ParseException( "Invalid quantity or range: $val" );
 				}
 			}
 			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
 		} elseif ( preg_match( "/^haslinks\[((?:\\$\d+,?)+)\]\$/", $s, $m ) ) {
+			if ( preg_match( '/(^|\.)qlfrs$/', $fldPrefix ) ) {
+				throw new ParseException( "Invalid filter or qualifier condition: $s" );
+			}
 			$valIds = explode( ',', $m[1] );
 			$orClause = array();
 			foreach ( $valIds as $valId ) {
 				$orClause[] = "{$fldPrefix}sitelinks CONTAINSKEY $valId";
 			}
 			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
-		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]$/", $s, $m ) ) {
-			throw new ParseException( "HPwCV not supported as a filter: $s" );
 		} else {
-			throw new ParseException( "Invalid filter condition: $s" );
+			throw new ParseException( "Invalid filter or qualifier condition: $s" );
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Invalid filter condition: $s" );
+			throw new ParseException( "Bad filter or qualifier condition: $s" );
 		}
 
 		return implode( ' AND ', $where );
@@ -508,7 +498,7 @@ class WdqQueryParser {
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Unparsable: $s" );
+			throw new ParseException( "Unparsable range: $s" );
 		}
 
 		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
@@ -545,7 +535,7 @@ class WdqQueryParser {
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Unparsable: $s" );
+			throw new ParseException( "Unparsable period: $s" );
 		}
 
 		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
@@ -575,7 +565,7 @@ class WdqQueryParser {
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Unparsable: $s" );
+			throw new ParseException( "Unparsable area: $s" );
 		}
 
 		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
