@@ -37,9 +37,8 @@
 class WdqQueryParser {
 	const RE_FLOAT = '[-+]?[0-9]*\.?[0-9]+';
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
-	const FLD_BASIC = '/^(id|sitelinks|labels)$/';
-	const FLD_MAP = '/^((?:sitelinks|labels)\[\$\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
-	const FLD_CLAIMS = '/^claims(?:\[(\d+)\])(?:\[rank=(\w+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
+	const FLD_BASIC = '/^(id|sitelinks|labels|claims)$/';
+	const FLD_MAP = '/^((?:sitelinks|labels|claims)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
 	/**
 	 * @var array
@@ -82,28 +81,6 @@ class WdqQueryParser {
 				$proj[] = "out.{$prop} AS {$prop}";
 			} elseif ( preg_match( self::FLD_MAP, $prop, $m ) ) {
 				$proj[] = "out.{$m[1]} AS {$m[2]}";
-			} elseif( preg_match( self::FLD_CLAIMS, $prop, $m ) ) {
-				// Use claim cache to avoid excess fetches
-				$field = 'claims';
-				// https://bugs.php.net/bug.php?id=51881
-				if ( !empty( $m[1] ) ) {
-					$pId = $m[1];
-					$field .= "[$pId]";
-				} else {
-					$field .= "[]";
-				}
-				// https://bugs.php.net/bug.php?id=51881
-				if ( !empty( $m[2] ) ) {
-					$rank = $m[2];
-					if ( $rank === 'best' ) {
-						$field .= "[best=1]";
-					} elseif ( isset( self::$rankMap[$rank] ) ) {
-						$field .= "[best=" . self::$rankMap[$rank] . "]";
-					} else {
-						throw new ParseException( "Bad rank: '$rank'" );
-					}
-				}
-				$proj[] = "$field AS {$m[3]}";
 			} else {
 				throw new ParseException( "Invalid field: $prop" );
 			}

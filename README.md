@@ -46,6 +46,10 @@ All of this is very unfinished and WIP :)
 connect remote:localhost root root
 connect remote:127.0.0.1/WikiData admin admin
 
+*** WDQ query tester ***
+
+php cli-api.php --user admin --password admin
+
 *** Gremlin ***
 
 g = new OrientGraph("remote:127.0.0.1/WikiData");
