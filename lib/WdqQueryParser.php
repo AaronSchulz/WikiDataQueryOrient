@@ -4,7 +4,14 @@
  * Easy to use abstract query language helper
  *
  * Example query:
- * (id,claims) FROM
+ * (
+ *	id,
+ *	sitelinks['en'] AS sitelink,
+ *	labels['en'] AS label,
+ *	claims[X][rank=best] AS PX,
+ *	claims[Y][rank=best] AS PY
+ * )
+ * FROM
  * UNION(
  * 	DIFFERENCE(
  *		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
@@ -31,7 +38,17 @@ class WdqQueryParser {
 	const RE_FLOAT = '[-+]?[0-9]*\.?[0-9]+';
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
 	const FLD_BASIC = '/^(id|sitelinks|labels)$/';
-	const FLD_CMPLX = '/^((?:sitelinks|labels)\[\$\d+\])\s+AS\s+([a-zA-Z_]+)$/';
+	const FLD_MAP = '/^((?:sitelinks|labels)\[\$\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
+	const FLD_CLAIMS = '/^claims(?:\[(\d+)\])(?:\[rank=(\w+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
+
+	/**
+	 * @var array
+	 */
+	protected static $rankMap = array(
+		'deprecated' => -1,
+		'normal'     => 0,
+		'preferred'  => 1
+	);
 
 	/**
 	 * @param string $s
@@ -53,7 +70,7 @@ class WdqQueryParser {
 			throw new ParseException( "Expected FROM: $s" );
 		}
 		$rest = ltrim( substr( $rest, strlen( $token ) ) );
-		$query = $rest;
+		$query = self::parseSetOp( $rest, $map );
 
 		// Validate the properties selected.
 		// Enforce that [] fields use aliases (they otherwise get called out1, out2...)
@@ -63,18 +80,39 @@ class WdqQueryParser {
 			$m = array();
 			if ( preg_match( self::FLD_BASIC, $prop ) ) {
 				$proj[] = "out.{$prop} AS {$prop}";
-			} elseif ( preg_match( self::FLD_CMPLX, $prop, $m ) ) {
+			} elseif ( preg_match( self::FLD_MAP, $prop, $m ) ) {
 				$proj[] = "out.{$m[1]} AS {$m[2]}";
+			} elseif( preg_match( self::FLD_CLAIMS, $prop, $m ) ) {
+				// Use claim cache to avoid excess fetches
+				$field = 'claims';
+				// https://bugs.php.net/bug.php?id=51881
+				if ( !empty( $m[1] ) ) {
+					$pId = $m[1];
+					$field .= "[$pId]";
+				} else {
+					$field .= "[]";
+				}
+				// https://bugs.php.net/bug.php?id=51881
+				if ( !empty( $m[2] ) ) {
+					$rank = $m[2];
+					if ( $rank === 'best' ) {
+						$field .= "[best=1]";
+					} elseif ( isset( self::$rankMap[$rank] ) ) {
+						$field .= "[best=" . self::$rankMap[$rank] . "]";
+					} else {
+						throw new ParseException( "Bad rank: '$rank'" );
+					}
+				}
+				$proj[] = "$field AS {$m[3]}";
 			} else {
 				throw new ParseException( "Invalid field: $prop" );
 			}
 		}
 		$proj = implode( ',', $proj );
 
-		return self::unstripQuotedStrings(
-			"SELECT $proj FROM (" . self::parseSetOp( $query, $map ) . ") TIMEOUT $timeout",
-			$map
-		);
+		$sql = "SELECT $proj FROM ($query) TIMEOUT $timeout";
+
+		return self::unstripQuotedStrings( $sql, $map );
 	}
 
 	/**
@@ -272,16 +310,10 @@ class WdqQueryParser {
 			$rest = substr( $rest, strlen( $token ) );
 			$rank = self::consume( $rest, '()' );
 
-			static $rankMap = array(
-				'deprecated' => -1,
-				'normal'     => 0,
-				'preferred'  => 1
-			);
-
 			if ( $rank === 'best' ) {
 				$rankCond = "best=1";
-			} elseif ( isset( $rankMap[$rank] ) ) {
-				$rankCond = "rank={$rankMap[$rank]}";
+			} elseif ( isset( self::$rankMap[$rank] ) ) {
+				$rankCond = "rank=" . self::$rankMap[$rank];
 			} else {
 				throw new ParseException( "Bad rank: '$rank'" );
 			}
@@ -386,6 +418,8 @@ class WdqQueryParser {
 	 *
 	 * See https://github.com/orientechnologies/orientdb/wiki/SQL-Where
 	 * Lack of full "NOT" operator support means we have to be careful.
+	 * See https://github.com/orientechnologies/orientdb/issues/513 for
+	 * better field condition piping support.
 	 *
 	 * @param string $s
 	 * @param string $fldPrefix

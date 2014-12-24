@@ -39,7 +39,7 @@ function main() {
 		try {
 			$sql = WdqQueryParser::parse( $query );
 		} catch ( ParseException $e ) {
-			print( "Caught: {$e->getMessage()}\n" );
+			print( "Caught parser error: {$e->getMessage()}\n" );
 			continue;
 		}
 		print( "WDQ -> OrientSQL:\n$sql\n\n" );
@@ -53,6 +53,10 @@ function main() {
 		) );
 		$elapsed = ( microtime( true ) - $start );
 		print( "Done in $elapsed seconds...\n" );
+
+		if ( $rcode == 401 ) {
+			die( "Got HTTP 401: authentication expired.\n" );
+		}
 
 		$response = json_decode( $rbody, true );
 		if ( $response === null ) {

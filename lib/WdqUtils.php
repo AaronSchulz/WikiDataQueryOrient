@@ -75,7 +75,7 @@ class WdqUtils {
 	 * @return string
 	 */
 	public static function toJSON( $object ) {
-		$flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_QUOT | JSON_HEX_APOS;
+		$flags = JSON_UNESCAPED_SLASHES | JSON_HEX_QUOT | JSON_HEX_APOS;
 		return json_encode( self::mangleBacklashes( $object ), $flags );
 	}
 
@@ -90,7 +90,7 @@ class WdqUtils {
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
 				$value = rtrim( $value, '\\' );
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2690
-				$value = str_replace( array( '"', '\u' ), array( '', 'u' ), $value );
+				$value = str_replace( array( '"', '\u' ), array( '”', 'u' ), $value );
 				if ( $value !== $ovalue ) {
 					print( "JSON: converted value '$ovalue' => '$value'.\n" );
 				}

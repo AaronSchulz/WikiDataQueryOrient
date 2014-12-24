@@ -14,6 +14,13 @@ class WdqUpdater {
 	/** @var string */
 	protected $sessionId;
 
+	/** @var array ENUM map for short integer field */
+	protected static $rankMap = array(
+		'preferred'  => 1,
+		'normal'     => 0,
+		'deprecated' => -1
+	);
+
 	/**
 	 * @param MultiHttpClient $http
 	 * @param array $auth
@@ -76,8 +83,10 @@ class WdqUpdater {
 			'sitelinks' => $siteLinks ? (object)$siteLinks : (object)array(),
 		);
 
-		// Include the property IDs (pids) referenced for tracking
 		if ( isset( $item['claims'] ) ) {
+			// Include simplified claims for easy filtering/selecting
+			$coreItem['claims'] = $this->getSimpliedClaims( $item['claims'] );
+			// Include the property IDs (pids) referenced for tracking
 			$coreItem += $this->getReferenceIdSet( $item['claims'] );
 		}
 
@@ -95,6 +104,66 @@ class WdqUpdater {
 	}
 
 	/**
+	 * Get a streamlined version of $claims
+	 *
+	 * @param array $claims
+	 * @return array
+	 */
+	protected function getSimpliedClaims( array $claims ) {
+		$sClaims = array();
+
+		foreach ( $claims as $propertyId => $statements ) {
+			$pId = WdqUtils::wdcToLong( $propertyId );
+			$sClaims[$pId] = array();
+			$maxRank = -1; // highest statement rank for property
+			foreach ( $statements as $statement ) {
+				$maxRank = max( $maxRank, self::$rankMap[$statement['rank']] );
+			}
+			foreach ( $statements as $statement ) {
+				$mainSnak = $statement['mainsnak'];
+				$snakType = $mainSnak['snaktype'];
+
+				$sClaim = array(
+					'snaktype' => $snakType,
+					'rank'     => self::$rankMap[$statement['rank']],
+					'best'     => self::$rankMap[$statement['rank']] >= $maxRank ? 1 : 0
+				);
+
+				if ( isset( $statement['qualifiers'] ) ) {
+					$sClaim['qlfrs'] = $statement['qualifiers'];
+				}
+
+				if ( $snakType === 'value' ) {
+					$valueType = $mainSnak['datavalue']['type'];
+
+					$dataValue = null;
+					if ( $valueType === 'wikibase-entityid' ) {
+						$dataValue = $mainSnak['datavalue']['value']['numeric-id'];
+					} elseif ( $valueType === 'time' ) {
+						$dataValue = $mainSnak['datavalue']['value']['time'];
+					} elseif ( $valueType === 'quantity' ) {
+						$dataValue = (float)$mainSnak['datavalue']['value']['amount'];
+					} elseif ( $valueType === 'globecoordinate' ) {
+						$dataValue = array(
+							'lat' => $mainSnak['datavalue']['value']['latitude'],
+							'lon' => $mainSnak['datavalue']['value']['longitude']
+						);
+					} elseif ( $valueType === 'url' || $valueType === 'string' ) {
+						$dataValue = (string) $mainSnak['datavalue']['value'];
+					}
+
+					$sClaim['valuetype'] = $valueType;
+					$sClaim['datavalue'] = $dataValue;
+				}
+
+				$sClaims[$pId][] = $sClaim;
+			}
+		}
+
+		return $sClaims;
+	}
+
+	/**
 	 * Get IDs of items and properties refered to by $claims
 	 *
 	 * @param array $claims
@@ -104,8 +173,8 @@ class WdqUpdater {
 		$refs = array( 'pids' => array(), 'iids' => array() );
 
 		foreach ( $claims as $propertyId => $statements ) {
-			$pid = WdqUtils::wdcToLong( $propertyId );
-			$refs['pids'][] = (float)$pid;
+			$pId = WdqUtils::wdcToLong( $propertyId );
+			$refs['pids'][] = (float)$pId;
 			foreach ( $statements as $statement ) {
 				$mainSnak = $statement['mainsnak'];
 				if ( $mainSnak['snaktype'] === 'value' &&
@@ -161,20 +230,13 @@ class WdqUpdater {
 			return; // nothing to do
 		}
 
-		// ENUM map for short integer field
-		static $rankMap = array(
-			'preferred'  => 1,
-			'normal'     => 0,
-			'deprecated' => -1
-		);
-
 		$qId = WdqUtils::wdcToLong( $item['id'] );
 
 		$maxRankByPid = array(); // map of (pid => rank)
 		foreach ( $item['claims'] as $propertyId => $statements ) {
 			$pId = WdqUtils::wdcToLong( $propertyId );
 			foreach ( $statements as $statement ) {
-				$rank = $rankMap[$statement['rank']];
+				$rank = self::$rankMap[$statement['rank']];
 				$maxRankByPid[$pId] = isset( $maxRankByPid[$pId] )
 					? max( $maxRankByPid[$pId], $rank )
 					: $rank;
@@ -209,7 +271,7 @@ class WdqUpdater {
 
 				// https://www.wikidata.org/wiki/Help:Ranking
 				foreach ( $edges as &$edge ) {
-					$edge['rank'] = $rankMap[$statement['rank']];
+					$edge['rank'] = self::$rankMap[$statement['rank']];
 					$edge['best'] = $edge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
 					$edge['sid'] = $statement['id'];
 					$edge['qlfrs'] = isset( $statement['qualifiers'] )
@@ -380,14 +442,11 @@ class WdqUpdater {
 	 * @throws Exception
 	 */
 	public function tryCommand( $sql, $atomic = true, $ignore_dups = true ) {
-		if ( is_array( $sql ) && !$sql ) {
-			return; // nothing to do
-		}
+		$sql = (array)$sql;
 
-		if ( is_array( $sql ) && $atomic ) {
-			$sqlBatch = array_merge( array( 'begin' ), $sql, array( 'commit retry 100' ) );
-		} else {
-			$sqlBatch = $sql;
+		$ops = array();
+		foreach ( $sql as $sqlCmd ) {
+			$ops[] = array( 'type' => 'cmd', 'language' => 'sql', 'command' => $sqlCmd );
 		}
 
 		$req = array(
@@ -398,27 +457,21 @@ class WdqUpdater {
 				'Cookie'       => "OSESSIONID={$this->getSessionId()}" ),
 			'body'    => json_encode( array(
 				'transaction' => $atomic,
-				'operations'  => array(
-					array(
-						'type'     => 'script',
-						'language' => 'sql',
-						'script'   => $sqlBatch
-					)
-				)
+				'operations'  => $ops
 			) )
 		);
 
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( $req );
 		// Retry once for random failures (or when the payload is too big)...
-		if ( $rcode != 200 && is_array( $sqlBatch ) ) {
+		if ( $rcode != 200 && count( $sql ) > 1 ) {
 			if ( $atomic ) {
 				print( "Retrying batch command.\n" );
 				list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( $req );
 			} else {
 				print( "Retrying each batch command.\n" );
 				// Break down the commands if possible, which gets past some failures
-				foreach ( $sqlBatch as $sqlCmd ) {
-					$this->tryCommand( $sqlCmd, false, $ignore_dups );
+				foreach ( $sql as $sqlCmd ) {
+					$this->tryCommand( $sqlCmd, true, $ignore_dups );
 				}
 				return;
 			}
