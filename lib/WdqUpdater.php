@@ -114,11 +114,15 @@ class WdqUpdater {
 
 		foreach ( $claims as $propertyId => $statements ) {
 			$pId = WdqUtils::wdcToLong( $propertyId );
+
 			$sClaims[$pId] = array();
+
+			// http://www.wikidata.org/wiki/Help:Ranking
 			$maxRank = -1; // highest statement rank for property
 			foreach ( $statements as $statement ) {
 				$maxRank = max( $maxRank, self::$rankMap[$statement['rank']] );
 			}
+
 			foreach ( $statements as $statement ) {
 				$mainSnak = $statement['mainsnak'];
 				$snakType = $mainSnak['snaktype'];
@@ -158,6 +162,14 @@ class WdqUpdater {
 
 				$sClaims[$pId][] = $sClaim;
 			}
+
+			// Sort the statements by descending rank
+			usort( $sClaims[$pId], function( $a, $b ) {
+				if ( $a['rank'] == $b['rank'] ) {
+					return 0;
+				}
+				return ( $a['rank'] > $b['rank'] ) ? -1 : 1;
+			} );
 		}
 
 		return $sClaims;

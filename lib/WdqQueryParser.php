@@ -8,8 +8,8 @@
  *	id,
  *	sitelinks['en'] AS sitelink,
  *	labels['en'] AS label,
- *	claims[X][rank=best] AS PX,
- *	claims[Y][rank=best] AS PY
+ *	claims[X] AS PX,
+ *	claims[Y] AS PY
  * )
  * FROM
  * UNION(
