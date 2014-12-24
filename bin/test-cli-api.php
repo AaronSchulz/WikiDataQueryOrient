@@ -2,6 +2,7 @@
 
 require_once( __DIR__ . '/../lib/autoload.php' );
 
+$queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims) FROM {items[62]}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwAnyV[279] QUALIFY(HPwQV[1414:89-90,1]) LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwAnyV[31,279] LIMIT(5)}';
 $queries[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPV[31:2590631] LIMIT(5)}';

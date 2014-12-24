@@ -124,40 +124,17 @@ class WdqUpdater {
 			}
 
 			foreach ( $statements as $statement ) {
-				$mainSnak = $statement['mainsnak'];
-				$snakType = $mainSnak['snaktype'];
+				$sClaim = $this->getSimpleSnak( $statement['mainsnak'] );
+				$sClaim['rank'] = self::$rankMap[$statement['rank']];
+				$sClaim['best'] = self::$rankMap[$statement['rank']] >= $maxRank ? 1 : 0;
 
-				$sClaim = array(
-					'snaktype' => $snakType,
-					'rank'     => self::$rankMap[$statement['rank']],
-					'best'     => self::$rankMap[$statement['rank']] >= $maxRank ? 1 : 0
-				);
-
-				if ( isset( $statement['qualifiers'] ) ) {
-					$sClaim['qlfrs'] = $statement['qualifiers'];
-				}
-
-				if ( $snakType === 'value' ) {
-					$valueType = $mainSnak['datavalue']['type'];
-
-					$dataValue = null;
-					if ( $valueType === 'wikibase-entityid' ) {
-						$dataValue = $mainSnak['datavalue']['value']['numeric-id'];
-					} elseif ( $valueType === 'time' ) {
-						$dataValue = $mainSnak['datavalue']['value']['time'];
-					} elseif ( $valueType === 'quantity' ) {
-						$dataValue = (float)$mainSnak['datavalue']['value']['amount'];
-					} elseif ( $valueType === 'globecoordinate' ) {
-						$dataValue = array(
-							'lat' => $mainSnak['datavalue']['value']['latitude'],
-							'lon' => $mainSnak['datavalue']['value']['longitude']
-						);
-					} elseif ( $valueType === 'url' || $valueType === 'string' ) {
-						$dataValue = (string) $mainSnak['datavalue']['value'];
+				$qlfrs = isset( $statement['qualifiers'] ) ? $statement['qualifiers'] : array();
+				foreach ( $qlfrs as $qPropertyId => $qSnaks ) {
+					$qPId = (string) WdqUtils::wdcToLong( $qPropertyId );
+					$sClaim['qlfrs'][$qPId] = array();
+					foreach ( $qSnaks as $qSnak ) {
+						$sClaim['qlfrs'][$qPId][] = $this->getSimpleSnak( $qSnak );
 					}
-
-					$sClaim['valuetype'] = $valueType;
-					$sClaim['datavalue'] = $dataValue;
 				}
 
 				$sClaims[$pId][] = $sClaim;
@@ -173,6 +150,39 @@ class WdqUpdater {
 		}
 
 		return $sClaims;
+	}
+
+	/**
+	 * @param array $snak
+	 * @return array
+	 */
+	protected function getSimpleSnak( array $snak ) {
+		$simpleSnak = array( 'snaktype' => $snak['snaktype'] );
+
+		if ( $snak['snaktype'] === 'value' ) {
+			$valueType = $snak['datavalue']['type'];
+
+			$dataValue = null;
+			if ( $valueType === 'wikibase-entityid' ) {
+				$dataValue = $snak['datavalue']['value']['numeric-id'];
+			} elseif ( $valueType === 'time' ) {
+				$dataValue = $snak['datavalue']['value']['time'];
+			} elseif ( $valueType === 'quantity' ) {
+				$dataValue = (float)$snak['datavalue']['value']['amount'];
+			} elseif ( $valueType === 'globecoordinate' ) {
+				$dataValue = array(
+					'lat' => $snak['datavalue']['value']['latitude'],
+					'lon' => $snak['datavalue']['value']['longitude']
+				);
+			} elseif ( $valueType === 'url' || $valueType === 'string' ) {
+				$dataValue = (string) $snak['datavalue']['value'];
+			}
+
+			$simpleSnak['valuetype'] = $valueType;
+			$simpleSnak['datavalue'] = $dataValue;
+		}
+
+		return $simpleSnak;
 	}
 
 	/**
@@ -455,6 +465,9 @@ class WdqUpdater {
 	 */
 	public function tryCommand( $sql, $atomic = true, $ignore_dups = true ) {
 		$sql = (array)$sql;
+		if ( !$sql ) {
+			return; // nothing to do
+		}
 
 		$ops = array();
 		foreach ( $sql as $sqlCmd ) {

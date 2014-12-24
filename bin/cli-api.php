@@ -44,11 +44,12 @@ function main() {
 		}
 		print( "WDQ -> OrientSQL:\n$sql\n\n" );
 
+		$limit = 1000; // sanity
 		print( "Running (querying $url)...\n" );
 		$start = microtime( true );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( array(
 			'method'  => 'GET',
-			'url'     => "$url/query/WikiData/sql/" . rawurlencode( $sql ),
+			'url'     => "$url/query/WikiData/sql/" . rawurlencode( $sql ) . "/$limit",
 			'headers' => array( 'Cookie' => "OSESSIONID=$sessionId" )
 		) );
 		$elapsed = ( microtime( true ) - $start );

@@ -40,9 +40,7 @@ class WdqQueryParser {
 	const FLD_BASIC = '/^(id|sitelinks|labels|claims)$/';
 	const FLD_MAP = '/^((?:sitelinks|labels|claims)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
-	/**
-	 * @var array
-	 */
+	/** @var array */
 	protected static $rankMap = array(
 		'deprecated' => -1,
 		'normal'     => 0,
@@ -52,9 +50,10 @@ class WdqQueryParser {
 	/**
 	 * @param string $s
 	 * @param integer $timeout
+	 * @param integer $limit
 	 * @return string
 	 */
-	public static function parse( $s, $timeout = 5000 ) {
+	public static function parse( $s, $timeout = 5000, $limit = 1000 ) {
 		$s = trim( $s );
 		// Amour all quoted string values for easy parsing
 		list( $s, $map ) = self::stripQuotedStrings( $s );
@@ -87,7 +86,7 @@ class WdqQueryParser {
 		}
 		$proj = implode( ',', $proj );
 
-		$sql = "SELECT $proj FROM ($query) TIMEOUT $timeout";
+		$sql = "SELECT $proj FROM ($query) TIMEOUT $timeout LIMIT $limit";
 
 		return self::unstripQuotedStrings( $sql, $map );
 	}
