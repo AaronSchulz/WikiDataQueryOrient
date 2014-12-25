@@ -182,17 +182,17 @@ class WdqQueryParser {
 			$pIds = explode( ',', $m[2] );
 			$inClause = self::sqlIN( 'iid', $pIds );
 			$sql = "SELECT DISTINCT(out) AS out FROM (" .
-				"SELECT expand(inE($classes)) FROM Property WHERE $inClause\$RCOND\$\$QCOND\$)";
+				"SELECT expand(inE($classes)) FROM Property WHERE \$RCOND\$ AND $inClause\$QCOND\$)";
 		} elseif ( preg_match( "/^HIaPV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$iIds = explode( ',', $m[2] );
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
 			$orClause = array();
 			foreach ( $iIds as $iId ) {
-				$orClause[] = "(iid=$iId AND pid=$pId)";
+				$orClause[] = "iid=$iId AND pid=$pId";
 			}
-			$orClause = implode( ' OR ', $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE ($orClause)\$RCOND\$\$QCOND\$";
+			$orClause = self::sqlOR( $orClause );
+			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE \$RCOND\$ AND $orClause\$QCOND\$";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$valIds = explode( ',', $m[2] );
@@ -201,8 +201,8 @@ class WdqQueryParser {
 			foreach ( $valIds as $valId ) {
 				$orClause[] = "(iid=$pId AND val=$valId)";
 			}
-			$orClause = implode( ' OR ', $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE ($orClause)\$RCOND\$\$QCOND\$";
+			$orClause = self::sqlOR( $orClause );
+			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE \$RCOND\$ AND $orClause\$QCOND\$";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
@@ -211,7 +211,7 @@ class WdqQueryParser {
 				: self::parseRangeDive( 'val', $m[3] );
 			$order = isset( $m[4] ) ? $m[4] : null;
 			$sql = "SELECT DISTINCT(out) AS out FROM $class " .
-				"WHERE iid=$pId AND $where\$RCOND\$\$QCOND\$";
+				"WHERE \$RCOND\$ AND iid=$pId AND $where\$QCOND\$";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
@@ -219,7 +219,7 @@ class WdqQueryParser {
 			$pId = $m[1];
 			$where = self::parseAroundDive( $m[2] );
 			$sql = "SELECT DISTINCT(out) AS out FROM HPwCV " .
-				"WHERE iid=$pId AND $where\$RCOND\$\$QCOND\$";
+				"WHERE \$RCOND\$ AND iid=$pId AND $where\$QCOND\$";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
@@ -232,8 +232,8 @@ class WdqQueryParser {
 			foreach ( $valIds as $valId ) {
 				$orClause[] = "sitelinks CONTAINSVALUE $valId";
 			}
-			$orClause = implode( ' OR ', $orClause );
-			$sql = "SELECT DISTINCT(@RID) AS out FROM Item WHERE ($orClause)";
+			$orClause = self::sqlOR( $orClause );
+			$sql = "SELECT DISTINCT(@RID) AS out FROM Item WHERE $orClause";
 			$qualiferPrefix = null; // makes no sense
 			$filteringPrefix = ''; // queries Item class, not edge class
 		} elseif ( preg_match(
@@ -266,7 +266,7 @@ class WdqQueryParser {
 				$sql = "SELECT @RID AS out FROM (" .
 					"TRAVERSE $tfields " .
 					"FROM (select FROM Item WHERE $inClause) " .
-					"WHILE (@class='Item' OR (($whileCond)\$RCOND\$\$QCOND\$))" .
+					"WHILE (@class='Item' OR (\$RCOND\$ AND ($whileCond)\$QCOND\$))" .
 					") WHERE @class='Item'";
 			} else {
 				// Just grab the root items
@@ -288,16 +288,18 @@ class WdqQueryParser {
 			$rank = self::consume( $rest, '()' );
 
 			if ( $rank === 'best' ) {
-				$rankCond = "best=1";
+				$rankCond = "best=1 AND rank >= 0";
+			} elseif ( $rank === 'deprecated' ) { // performance
+				throw new ParseException( "rank=deprecated filter is not supported" );
 			} elseif ( isset( self::$rankMap[$rank] ) ) {
 				$rankCond = "rank=" . self::$rankMap[$rank];
 			} else {
 				throw new ParseException( "Bad rank: '$rank'" );
 			}
 
-			$sql = str_replace( '$RCOND$', " AND $rankCond", $sql );
+			$sql = str_replace( '$RCOND$', $rankCond, $sql );
 		} else {
-			$sql = str_replace( '$RCOND$', '', $sql );
+			$sql = str_replace( '$RCOND$', 'rank >= 0', $sql );
 		}
 
 		$rest = trim( $rest );
@@ -573,7 +575,7 @@ class WdqQueryParser {
 
 	/**
 	 * @param string $field
-	 * @param array $vals
+	 * @param array $vals Must not be empty
 	 * @return string
 	 */
 	protected static function sqlIN( $field, array $vals ) {
@@ -581,6 +583,16 @@ class WdqQueryParser {
 		return count( $vals ) == 1
 			? "$field=" . $vals[0]
 			: "$field IN [" . implode( ',', $vals ) . "]";
+	}
+
+	/**
+	 * @param array $conditions Must not be empty
+	 * @return string
+	 */
+	protected static function sqlOR( array $conditions ) {
+		return count( $conditions ) > 1
+			? '(' . implode( ') OR (', $conditions ) . ')'
+			: $conditions[0];
 	}
 
 	/**
