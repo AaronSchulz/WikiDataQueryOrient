@@ -63,7 +63,7 @@ function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback 
 			}
 			if ( $itemCount > 0 && $itemCount % 1000 == 0 ) {
 				$rate = 1000 / ( microtime( true ) - $lastTime );
-				print( "Doing $rate items/sec (at offset $pos,$offset)\n" );
+				print( "Doing $rate items/sec (at $pos)\n" );
 				$lastTime = microtime( true );
 			}
 		}

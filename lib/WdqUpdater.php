@@ -365,15 +365,14 @@ class WdqUpdater {
 		// Delete obsolete outgoing edges...
 		$existingEdgeSids = array(); // map of (class:sid => #RID)
 		if ( $method !== 'bulk_init' ) {
-			// Get the prior edges SIDs/#RIDs
+			// Get the prior edges SIDs/#RIDs...
 			if ( $this->iCache->has( $qId ) ) {
 				$from = $this->iCache->get( $qId );
 			} else {
 				$from = "Item where id=$qId";
 			}
-
 			$res = $this->tryQuery(
-				"select sid,@class,@RID from (select expand(outE()) from $from)" );
+				"select sid,@class,@RID from (select expand(outE()) from $from)", 1e9 );
 			foreach ( $res as $record ) {
 				$key = $record['class'] . ':' . $record['sid'];
 				if ( isset( $existingEdgeSids[$key] ) ) {
@@ -384,8 +383,8 @@ class WdqUpdater {
 				}
 			}
 
+			// Destroy any prior outgoing edges with obsolete SIDs...
 			$deleteSids = array_diff_key( $existingEdgeSids, $newEdgeSids );
-			// Destroy any prior outgoing edges with obsolete SIDs
 			foreach ( $deleteSids as $rid ) {
 				$sql = "delete edge $rid";
 				if ( $classes ) {
@@ -660,8 +659,9 @@ class WdqUpdater {
 				$set[] = "$key=$value";
 			} elseif ( is_scalar( $value ) ) {
 				// https://github.com/orientechnologies/orientdb/issues/2424
+				$value = rtrim( $value, '\\' );
 				$value = str_replace( "\n", " ", $value );
-				$set[] = "$key='" . addcslashes( $value, "'" ) . "'";
+				$set[] = "$key='" . addcslashes( $value, "'\\" ) . "'";
 			} else {
 				$set[] = "$key=" . WdqUtils::toJSON( $value );
 			}
