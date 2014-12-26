@@ -457,7 +457,7 @@ class WdqQueryParser {
 			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
 		} elseif ( preg_match( "/^haslinks\[((?:\\$\d+,?)+)\]\$/", $s, $m ) ) {
 			if ( preg_match( '/(^|\.)qlfrs$/', $fldPrefix ) ) {
-				throw new ParseException( "Invalid filter or qualifier condition: $s" );
+				throw new ParseException( "Invalid qualifier condition: $s" );
 			}
 			$valIds = explode( ',', $m[1] );
 			$orClause = array();

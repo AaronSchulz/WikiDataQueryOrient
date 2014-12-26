@@ -14,6 +14,13 @@ class WdqUpdater {
 	/** @var string */
 	protected $sessionId;
 
+	/** @var array */
+	protected $pCache = array();
+	/** @var MapCacheLRU */
+	protected $iCache;
+	/** @var MapCacheLRU */
+	protected $iHitCache;
+
 	/** @var array ENUM map for short integer field */
 	protected static $rankMap = array(
 		'preferred'  => 1,
@@ -30,6 +37,9 @@ class WdqUpdater {
 		$this->url = $auth['url'];
 		$this->user = $auth['user'];
 		$this->password = $auth['password'];
+
+		$this->iHitCache = new MapCacheLRU( 20 );
+		$this->iCache = new MapCacheLRU( 1000 );
 	}
 
 	/**
@@ -41,6 +51,7 @@ class WdqUpdater {
 	 */
 	public function importEntities( array $entities, $update ) {
 		$sqlQueries = array();
+
 		foreach ( $entities as $entity ) {
 			if ( $entity['type'] === 'item' ) {
 				$sqlQueries[] = $this->importItemVertexSQL( $entity, $update );
@@ -78,7 +89,7 @@ class WdqUpdater {
 		}
 
 		$coreItem = array(
-			'id'        => (float) WdqUtils::wdcToLong( $item['id'] ),
+			'id'        => WdqUtils::wdcToLong( $item['id'] ),
 			'labels'    => $labels ? (object)$labels : (object)array(),
 			'sitelinks' => $siteLinks ? (object)$siteLinks : (object)array(),
 		);
@@ -160,7 +171,7 @@ class WdqUpdater {
 
 			$dataValue = null;
 			if ( $valueType === 'wikibase-entityid' ) {
-				$dataValue = (float) $snak['datavalue']['value']['numeric-id'];
+				$dataValue = (int) $snak['datavalue']['value']['numeric-id'];
 			} elseif ( $valueType === 'time' ) {
 				$dataValue = $snak['datavalue']['value']['time'];
 			} elseif ( $valueType === 'quantity' ) {
@@ -212,13 +223,13 @@ class WdqUpdater {
 
 		foreach ( $claims as $propertyId => $statements ) {
 			$pId = WdqUtils::wdcToLong( $propertyId );
-			$refs['pids'][] = (float)$pId;
+			$refs['pids'][] = $pId;
 			foreach ( $statements as $statement ) {
 				$mainSnak = $statement['mainsnak'];
 				if ( $mainSnak['snaktype'] === 'value' &&
 					$mainSnak['datavalue']['type'] === 'wikibase-entityid'
 				) {
-					$refs['iids'][] = (float)$mainSnak['datavalue']['value']['numeric-id'];
+					$refs['iids'][] = (int)$mainSnak['datavalue']['value']['numeric-id'];
 				}
 			}
 		}
@@ -236,7 +247,7 @@ class WdqUpdater {
 	 */
 	protected function importPropertyVertexSQL( array $item, $update ) {
 		$coreItem = array(
-			'id'       => (float) WdqUtils::wdcToLong( $item['id'] ),
+			'id'       => WdqUtils::wdcToLong( $item['id'] ),
 			'datatype' => $item['datatype']
 		);
 
@@ -257,15 +268,41 @@ class WdqUpdater {
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel
 	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
 	 *
-	 * @param array $item
+	 * @param array $entities List of unique items (no item should appear twice)
 	 * @param string $method (rebuild/bulk)
 	 * @param array|null $classes Only do certain edge classes
 	 */
-	public function importItemPropertyEdges( array $item, $method, array $classes = null ) {
+	public function makeEntityEdges( array $entities, $method, array $classes = null ) {
+		$sqlQueries = array();
+
+		foreach ( $entities as $entity ) {
+			if ( $entity['type'] === 'item' ) {
+				$sqlQueries = array_merge( $sqlQueries,
+					$this->importItemEdgesSQL( $entity, $method ) );
+			} elseif ( $entity['type'] === 'property' ) {
+				// nothing to do
+			} else {
+				trigger_error( "Unrecognized entity of type '{$entity['type']}'." );
+			}
+		}
+
+		$this->tryCommand( $sqlQueries, false, true );
+	}
+
+	/**
+	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel
+	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
+	 *
+	 * @param array $item
+	 * @param string $method (rebuild/bulk)
+	 * @param array|null $classes Only do certain edge classes
+	 * @return array
+	 */
+	public function importItemEdgesSQL( array $item, $method, array $classes = null ) {
 		if ( !isset( $item['claims'] ) ) {
-			return; // nothing to do
+			return array(); // nothing to do
 		} elseif ( $classes !== null && !count( $classes ) ) {
-			return; // nothing to do
+			return array(); // nothing to do
 		}
 
 		$qId = WdqUtils::wdcToLong( $item['id'] );
@@ -332,7 +369,12 @@ class WdqUpdater {
 			$res = $this->tryQuery(
 				"select sid,@RID from (select expand(outE()) from Item where id=$qId)" );
 			foreach ( $res as $record ) {
-				$existingEdgeSids[$record['sid']] = $record['RID'];
+				if ( isset( $existingEdgeSids[$record['sid']] ) ) {
+					// Delete any redundant edges
+					$sqlQueries[] = "delete edge {$record['RID']}";
+				} else {
+					$existingEdgeSids[$record['sid']] = $record['RID'];
+				}
 			}
 			$deleteSids = array_diff_key( $existingEdgeSids, $newEdgeSids );
 			// Destroy any prior outgoing edges with obsolete SIDs
@@ -362,15 +404,31 @@ class WdqUpdater {
 				$sqlQueries[] = "update $rid set $set";
 			} else {
 				// If no edge was found with the SID, then make a new one...
-				$sqlQueries[] =
-					"create edge $class " .
-					"from (select from Item where id=$qId) " .
-					"to (select from $toClass where id={$dvEdge['iid']}) content " .
+				if ( $this->iCache->has( $qId ) ) {
+					$from = $this->iCache->get( $qId );
+				} else {
+					$from = "(select from Item where id=$qId)";
+				}
+				if ( $toClass === 'Property' && isset( $this->pCache[$dvEdge['iid']] ) ) {
+					$to = $this->pCache[$dvEdge['iid']];
+				} elseif ( $toClass === 'Item' && $this->iCache->has( $dvEdge['iid'] ) ) {
+					$to = $this->iCache->get( $dvEdge['iid'] );
+				} else {
+					$to = "(select from $toClass where id={$dvEdge['iid']})";
+					if ( $toClass === 'Item' ) {
+						$this->iHitCache->set( $dvEdge['iid'], 1 );
+						if ( mt_rand( 0, 999 ) == 0 ) {
+							$this->updateItemRIDCache( $this->iHitCache->getAllKeys() );
+						}
+					}
+				}
+
+				$sqlQueries[] = "create edge $class from $from to $to content " .
 					WdqUtils::toJSON( $dvEdge );
 			}
 		}
 
-		$this->tryCommand( $sqlQueries, false );
+		return $sqlQueries;
 	}
 
 	/**
@@ -386,7 +444,7 @@ class WdqUpdater {
 
 		$type = $mainSnak['datavalue']['type'];
 		if ( $type === 'wikibase-entityid' ) {
-			$otherId = $mainSnak['datavalue']['value']['numeric-id'];
+			$otherId = (int) $mainSnak['datavalue']['value']['numeric-id'];
 			$dvEdges[] = array(
 				'class'   => 'HPwIV',
 				'val'     => $otherId,
@@ -481,7 +539,7 @@ class WdqUpdater {
 	 */
 	public function tryCommand( $sql, $atomic = true, $ignore_dups = true ) {
 		$sql = (array)$sql;
-		if ( !$sql ) {
+		if ( !count( $sql ) ) {
 			return; // nothing to do
 		}
 
@@ -497,7 +555,7 @@ class WdqUpdater {
 				'Content-Type' => "application/json",
 				'Cookie'       => "OSESSIONID={$this->getSessionId()}" ),
 			'body'    => json_encode( array(
-				'transaction' => $atomic,
+				'transaction' => true,
 				'operations'  => $ops
 			) )
 		);
@@ -532,13 +590,14 @@ class WdqUpdater {
 
 	/**
 	 * @param string|array $sql
+	 * @param integer $limit
 	 * @return array
 	 * @throws Exception
 	 */
-	public function tryQuery( $sql ) {
+	public function tryQuery( $sql, $limit = 20 ) {
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( array(
 			'method'  => 'GET',
-			'url'     => "{$this->url}/query/WikiData/sql/" . rawurlencode( $sql ),
+			'url'     => "{$this->url}/query/WikiData/sql/" . rawurlencode( $sql ) . "/$limit",
 			'headers' => array( 'Cookie' => "OSESSIONID={$this->getSessionId()}" )
 		) );
 
@@ -598,5 +657,50 @@ class WdqUpdater {
 			}
 		}
 		return implode( ', ', $set );
+	}
+
+	/**
+	 * Build the full P# => #RID cache map
+	 */
+	public function buildPropertyRIDCache() {
+		$this->pCache = array();
+		$res = $this->tryQuery( 'select from index:ProperyIdIdx', 10000 );
+		foreach ( $res as $record ) {
+			$this->pCache[(int)$record['key']] = $record['rid'];
+		}
+	}
+
+	/**
+	 * Update the the Q# => #RID cache map
+	 *
+	 * @param integer $fromId
+	 * @param integer $toId
+	 */
+	public function mergeItemRIDCache( $fromId, $toId ) {
+		$res = $this->tryQuery(
+			"select from index:ItemIdIdx where key BETWEEN $fromId AND $toId", 1000 );
+		foreach ( $res as $record ) {
+			$this->iCache->set( (int)$record['key'], $record['rid'] );
+		}
+	}
+
+	/**
+	 * Build the Q# => #RID cache map
+	 *
+	 * @param array $ids
+	 */
+	protected function updateItemRIDCache( array $ids ) {
+		$orClause = array();
+		foreach ( $ids as $id ) {
+			if ( !$this->iCache->has( $id ) ) {
+				$orClause[] = "id=$id";
+			}
+		}
+		$orClause = implode( " OR ", $orClause );
+
+		$res = $this->tryQuery( "select id,@RID from Item where $orClause" );
+		foreach ( $res as $record ) {
+			$this->iCache->set( (int)$record['id'], $record['RID'] );
+		}
 	}
 }

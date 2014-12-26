@@ -3,7 +3,7 @@
 require_once( __DIR__ . '/../lib/autoload.php' );
 
 error_reporting( E_ALL );
-ini_set( 'memory_limit', '256M' );
+ini_set( 'memory_limit', '512M' );
 
 function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback ) {
 	list( $mDiv, $mRem ) = $modParams;
@@ -24,22 +24,17 @@ function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback 
 
 	$pos = -1;
 	$started = ( $after == 0 );
-	$handle = fopen( $dump, "rb+" );
-	if ( $handle ) {
-		// XXX: still not working right on 32bit
+	$dHandle = fopen( $dump, "rb+" );
+	if ( $dHandle ) {
 		if ( $offset > 0 && PHP_INT_SIZE == 8 ) {
 			// fseek()/ftell() give garbage on big files in 32-bit (Windows)
-			for ( $i=1; $i <= floor( $offset / 2e9 ); ++$i ) {
-				fseek( $handle, 2e9, SEEK_CUR );
-				print( "Seeking ahead by 2e9\n" );
-			}
-			fseek( $handle, fmod( $offset, 2e9 ), SEEK_CUR );
-			print( "Seeking ahead by " . fmod( $offset, 2e9 ) . "\n" );
+			fseek( $dHandle, $offset );
 			$started = true;
 			$pos = $after;
 		}
+		$lastTime = microtime( true );
 		$itemCount = 0; // items processed this run
-		while ( ( $line = fgets( $handle ) ) !== false ) {
+		while ( ( $line = fgets( $dHandle ) ) !== false ) {
 			++$pos;
 			$offset += (float) strlen( $line );
 			if ( !$started ) {
@@ -61,14 +56,18 @@ function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback 
 				$hasAdvanced = false;
 			}
 			if ( $posFile && $hasAdvanced ) {
-				// Dump each line so method=bulk_init is restartable
-				$bytes = file_put_contents( $posFile, $pos . '|' . $offset );
-				if ( $bytes === false ) {
+				// Dump the position when it's safe to do so ($hasAdvanced)
+				if ( !file_put_contents( $posFile, $pos . '|' . $offset ) ) {
 					throw new Exception( "Could not write to '$posFile'." );
 				}
 			}
+			if ( $itemCount > 0 && $itemCount % 1000 == 0 ) {
+				$rate = 1000 / ( microtime( true ) - $lastTime );
+				print( "Doing $rate items/sec (at offset $pos,$offset)\n" );
+				$lastTime = microtime( true );
+			}
 		}
-		fclose( $handle );
+		fclose( $dHandle );
 	}
 }
 
@@ -114,8 +113,9 @@ function main() {
 	# Pass 1; load in all vertexes
 	if ( $phase === 'vertexes' ) {
 		$batch = array();
+		$batchSize = 100;
 		iterateJsonDump( $dump, $modParams, $posFile,
-			function( $entity ) use ( $updater, $method, &$batch ) {
+			function( $entity ) use ( $updater, $method, &$batch, $batchSize ) {
 				if ( $entity['type'] === 'item' ) {
 					print( 'Importing vertex for Item ' . $entity['id'] . " ($method)\n" );
 					$batch[] = $entity;
@@ -123,7 +123,7 @@ function main() {
 					print( 'Importing vertex for Property ' . $entity['id'] . " ($method)\n" );
 					$batch[] = $entity;
 				}
-				if ( count( $batch ) >= 50 ) {
+				if ( count( $batch ) >= $batchSize ) {
 					print( "Comitting...\n" );
 					$updater->importEntities( $batch, $method );
 					$batch = array();
@@ -139,17 +139,44 @@ function main() {
 		}
 	# Pass 2: establish all edges between vertexes
 	} elseif ( $phase === 'edges' ) {
+		print( "Building Property RID cache..." );
+		$updater->buildPropertyRIDCache();
+		print( "done\n" );
+		$batch = array();
+		$batchSize = 100;
 		iterateJsonDump( $dump, $modParams, $posFile,
-			function( $item, $count ) use ( $updater, $method, $classes ) {
-				if ( $item['type'] === 'item' ) {
-					// Restarting might redo the first item; preserve idempotence
-					$safeMethod = ( $count == 1 ) ? 'rebuild' : $method;
-					print( 'Importing edges for Item ' . $item['id'] . " ($safeMethod)\n" );
-					$updater->importItemPropertyEdges( $item, $safeMethod, $classes );
+			function( $entity, $count ) use ( $updater, $method, $classes, &$batch, $batchSize ) {
+				if ( $entity['type'] !== 'item' ) {
+					return false;
 				}
-				return true;
+				// Prefetch #RIDs for items to reduce random I/O
+				$qId = WdqUtils::wdcToLong( $entity['id'] );
+				if ( $qId % 500 == 1 ) {
+					$qIdStop = $qId + 499;
+					print( "Populating Item RID cache ($qId-$qIdStop)..." );
+					$updater->mergeItemRIDCache( $qId, $qIdStop );
+					print( "done\n" );
+				}
+				// Restarting might redo the first batch; preserve idempotence
+				$safeMethod = ( $count <= $batchSize ) ? 'rebuild' : $method;
+				print( 'Importing edges for Item ' . $entity['id'] . " ($safeMethod)\n" );
+
+				$batch[] = $entity;
+				if ( count( $batch ) >= $batchSize ) {
+					print( "Comitting...\n" );
+					$updater->makeEntityEdges( $batch, $method, $classes );
+					$batch = array();
+					return true;
+				}
+
+				return false;
 			}
 		);
+		if ( count( $batch ) ) {
+			print( "Comitting...\n" );
+			$updater->makeEntityEdges( $batch, $method, $classes );
+			$batch = array();
+		}
 	}
 }
 

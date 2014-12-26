@@ -3,14 +3,14 @@
 class WdqUtils {
 	/**
 	 * @param string $code
-	 * @return float integer
+	 * @return integer
 	 */
 	public static function wdcToLong( $code ) {
 		$int = substr( $code, 1 ); // strip the Q/P/L
 		if ( !preg_match( '/^\d+$/', $int ) ) {
 			throw new Exception( "Invalid code '$code'." );
 		}
-		return (float)$int;
+		return (int)$int;
 	}
 
 	/**
