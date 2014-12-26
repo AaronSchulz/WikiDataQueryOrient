@@ -124,8 +124,9 @@ function main() {
 					$batch[] = $entity;
 				}
 				if ( count( $batch ) >= $batchSize ) {
-					print( "Comitting...\n" );
+					print( "Comitting..." );
 					$updater->importEntities( $batch, $method );
+					print( "done\n" );
 					$batch = array();
 					return true;
 				}
@@ -133,8 +134,9 @@ function main() {
 			}
 		);
 		if ( count( $batch ) ) {
-			print( "Comitting...\n" );
+			print( "Comitting..." );
 			$updater->importEntities( $batch, $method );
+			print( "done\n" );
 			$batch = array();
 		}
 	# Pass 2: establish all edges between vertexes
@@ -163,8 +165,9 @@ function main() {
 
 				$batch[] = $entity;
 				if ( count( $batch ) >= $batchSize ) {
-					print( "Comitting...\n" );
+					print( "Comitting..." );
 					$updater->makeEntityEdges( $batch, $method, $classes );
+					print( "done\n" );
 					$batch = array();
 					return true;
 				}
@@ -173,8 +176,9 @@ function main() {
 			}
 		);
 		if ( count( $batch ) ) {
-			print( "Comitting...\n" );
+			print( "Comitting..." );
 			$updater->makeEntityEdges( $batch, $method, $classes );
+			print( "done\n" );
 			$batch = array();
 		}
 	}

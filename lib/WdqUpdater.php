@@ -39,7 +39,7 @@ class WdqUpdater {
 		$this->password = $auth['password'];
 
 		$this->iHitCache = new MapCacheLRU( 20 );
-		$this->iCache = new MapCacheLRU( 1000 );
+		$this->iCache = new MapCacheLRU( 10000 );
 	}
 
 	/**
@@ -50,19 +50,19 @@ class WdqUpdater {
 	 * @throws Exception
 	 */
 	public function importEntities( array $entities, $update ) {
-		$sqlQueries = array();
+		$queries = array();
 
 		foreach ( $entities as $entity ) {
 			if ( $entity['type'] === 'item' ) {
-				$sqlQueries[] = $this->importItemVertexSQL( $entity, $update );
+				$queries[] = $this->importItemVertexSQL( $entity, $update );
 			} elseif ( $entity['type'] === 'property' ) {
-				$sqlQueries[] = $this->importPropertyVertexSQL( $entity, $update );
+				$queries[] = $this->importPropertyVertexSQL( $entity, $update );
 			} else {
 				trigger_error( "Unrecognized entity of type '{$entity['type']}'." );
 			}
 		}
 
-		$this->tryCommand( $sqlQueries, false, true );
+		$this->tryCommand( $queries, false, true );
 	}
 
 	/**
@@ -273,11 +273,11 @@ class WdqUpdater {
 	 * @param array|null $classes Only do certain edge classes
 	 */
 	public function makeEntityEdges( array $entities, $method, array $classes = null ) {
-		$sqlQueries = array();
+		$queries = array();
 
 		foreach ( $entities as $entity ) {
 			if ( $entity['type'] === 'item' ) {
-				$sqlQueries = array_merge( $sqlQueries,
+				$queries = array_merge( $queries,
 					$this->importItemEdgesSQL( $entity, $method ) );
 			} elseif ( $entity['type'] === 'property' ) {
 				// nothing to do
@@ -286,7 +286,7 @@ class WdqUpdater {
 			}
 		}
 
-		$this->tryCommand( $sqlQueries, false, true );
+		$this->tryCommand( $queries, false, true );
 	}
 
 	/**
@@ -318,7 +318,7 @@ class WdqUpdater {
 			}
 		}
 
-		$newEdgeSids = array(); // map of (sid => 1)
+		$newEdgeSids = array(); // map of (class:sid => 1)
 		$dvEdges = array(); // list of data value statements (maps with class/val/rank)
 		foreach ( $item['claims'] as $propertyId => $statements ) {
 			$pId = WdqUtils::wdcToLong( $propertyId );
@@ -352,7 +352,7 @@ class WdqUpdater {
 					$edge['qlfrs'] = isset( $statement['qualifiers'] )
 						? (object)$this->getSimpleQualifiers( $statement['qualifiers'] )
 						: (object)array();
-					$newEdgeSids[$edge['sid']] = 1;
+					$newEdgeSids[$edge['class'] . ':' . $edge['sid']] = 1;
 				}
 				unset( $edge );
 
@@ -360,30 +360,38 @@ class WdqUpdater {
 			}
 		}
 
-		$sqlQueries = array();
+		$queries = array();
 
 		// Delete obsolete outgoing edges...
-		$existingEdgeSids = array(); // map of (sid => #RID)
+		$existingEdgeSids = array(); // map of (class:sid => #RID)
 		if ( $method !== 'bulk_init' ) {
 			// Get the prior edges SIDs/#RIDs
+			if ( $this->iCache->has( $qId ) ) {
+				$from = $this->iCache->get( $qId );
+			} else {
+				$from = "Item where id=$qId";
+			}
+
 			$res = $this->tryQuery(
-				"select sid,@RID from (select expand(outE()) from Item where id=$qId)" );
+				"select sid,@class,@RID from (select expand(outE()) from $from)" );
 			foreach ( $res as $record ) {
-				if ( isset( $existingEdgeSids[$record['sid']] ) ) {
+				$key = $record['class'] . ':' . $record['sid'];
+				if ( isset( $existingEdgeSids[$key] ) ) {
 					// Delete any redundant edges
-					$sqlQueries[] = "delete edge {$record['RID']}";
+					$queries[] = "delete edge {$record['RID']}";
 				} else {
-					$existingEdgeSids[$record['sid']] = $record['RID'];
+					$existingEdgeSids[$key] = $record['RID'];
 				}
 			}
+
 			$deleteSids = array_diff_key( $existingEdgeSids, $newEdgeSids );
 			// Destroy any prior outgoing edges with obsolete SIDs
-			foreach ( $deleteSids as $sid => $rid ) {
+			foreach ( $deleteSids as $rid ) {
 				$sql = "delete edge $rid";
 				if ( $classes ) {
 					$sql .= ' where @class in [' . implode( ',', $classes ) . ']';
 				}
-				$sqlQueries[] = $sql;
+				$queries[] = $sql;
 			}
 		}
 
@@ -397,11 +405,12 @@ class WdqUpdater {
 			$toClass = $dvEdge['toClass'];
 			unset( $dvEdge['toClass'] );
 
-			if ( isset( $existingEdgeSids[$dvEdge['sid']] ) ) {
+			$key = $class . ":" . $dvEdge['sid'];
+			if ( isset( $existingEdgeSids[$key] ) ) {
 				// If an edge was found with the SID, then update it...
-				$rid = $existingEdgeSids[$dvEdge['sid']];
+				$rid = $existingEdgeSids[$key];
 				$set = $this->sqlSet( $dvEdge );
-				$sqlQueries[] = "update $rid set $set";
+				$queries[] = "update $rid set $set";
 			} else {
 				// If no edge was found with the SID, then make a new one...
 				if ( $this->iCache->has( $qId ) ) {
@@ -423,12 +432,13 @@ class WdqUpdater {
 					}
 				}
 
-				$sqlQueries[] = "create edge $class from $from to $to content " .
+				$sql = "create edge $class from $from to $to content " .
 					WdqUtils::toJSON( $dvEdge );
+				$queries[] = $sql;
 			}
 		}
 
-		return $sqlQueries;
+		return $queries;
 	}
 
 	/**

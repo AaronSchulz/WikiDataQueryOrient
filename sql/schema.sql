@@ -14,7 +14,7 @@ create property Item.labels EMBEDDEDMAP string;
 -- Store site links as a map of <site> => <site>#<title>
 create property Item.sitelinks EMBEDDEDMAP string;
 -- Store simplified claims as map of <property> => ((type,value,qlfrs),...)
-create property Item.claims EMBEDDEDMAP string;
+create property Item.claims EMBEDDEDMAP embedded;
 -- Store the IDs of properties and items referenced
 create property Item.pids EMBEDDEDSET long; -- properties referenced
 create property Item.iids EMBEDDEDSET long; -- items referenced
