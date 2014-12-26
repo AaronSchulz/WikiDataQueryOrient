@@ -39,7 +39,8 @@ class WdqQueryParser {
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
 	const RE_DATE = '(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z';
 	const FLD_BASIC = '/^(id|sitelinks|labels|claims)$/';
-	const FLD_MAP = '/^((?:sitelinks|labels|claims)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
+	const FLD_MAP = '/^((?:sitelinks|labels)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
+	const FLD_CLAIMS = '/^(claims\[\$?\d+\])(?:\[rank\s*=\s*([a-z]+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
 	/** @var array */
 	protected static $rankMap = array(
@@ -81,6 +82,21 @@ class WdqQueryParser {
 				$proj[] = "out.{$prop} AS {$prop}";
 			} elseif ( preg_match( self::FLD_MAP, $prop, $m ) ) {
 				$proj[] = "out.{$m[1]} AS {$m[2]}";
+			} elseif ( preg_match( self::FLD_CLAIMS, $prop, $m ) ) {
+				$field = "out.{$m[1]}";
+				// Per https://github.com/orientechnologies/orientdb/issues/3284
+				// we only get one filter, so make it on rank
+				// https://bugs.php.net/bug.php?id=51881
+				if ( empty( $m[2] ) ) {
+					// no rank filter
+				} elseif ( $m[2] === 'best' ) {
+					$field .= "[best=1]";
+				} elseif ( isset( self::$rankMap[$m[2]] ) ) {
+					$field .= "[rank=" . self::$rankMap[$m[2]] . "]";
+				} else {
+					throw new ParseException( "Bad rank: '{$m[2]}'" );
+				}
+				$proj[] = "$field AS {$m[3]}";
 			} else {
 				throw new ParseException( "Invalid field: $prop" );
 			}
