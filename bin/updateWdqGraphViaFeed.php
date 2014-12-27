@@ -147,9 +147,8 @@ function main() {
 			if ( isset( $entity['entity'] ) && isset( $entity['redirect'] ) ) {
 				print( "Ignored entity redirect: $json\n" );
 			} elseif ( $entity['type'] === 'item' ) {
-				$id = WdqUtils::wdcToLong( $entity['id'] );
 				$updater->importEntities( array( $entity ), $isNew ? 'insert' : 'update' );
-				$updater->importItemPropertyEdges( $entity, 'rebuild' );
+				$updater->makeEntityEdges( array( $entity ), 'rebuild' );
 			} elseif ( $entity['type'] === 'property' ) {
 				$updater->importEntities( array( $entity ), $isNew ? 'insert' : 'update' );
 			} else {

@@ -14,30 +14,39 @@
  * FROM
  * UNION(
  * 	DIFFERENCE(
- *		{HIaPVWeb[X] OUT[X,Y] IN[X,Y]}
+ *		{HPwIVWeb[X] OUT[X,Y] IN[X,Y]}
  *		{HPwQV[X:A,B,-C TO D] DESC LIMIT(100)} )
+ *		{HPwIV[X:$OTHERITEMS]}
  * 	UNION(
- * 		{HIaPV[X:A,B,C] WHERE(HPwV[X:A,C,D] AND (HPwV[X:Y TO Z] OR HPwV[X:Y]))}
+ * 		{HPwIV[X:A,B,C] WHERE(HPwV[X:A,C,D] AND (HPwV[X:Y TO Z] OR HPwV[X:Y]))}
  * 		{HPwQV[X:A,B,-C TO D] QUALIFY(HPwV[P,X,Y])}
  * 		INTERSECT(
- * 			{HIaPV[X:Y] WHERE(HPwV[X:Y] AND (HPwV[X:Y] OR HPwV[X:Y]))}
- * 			{HIaPV[X:Y] RANK(best) WHERE(HPwV[X:Y])}
- * 			{HIaPV[X:Y]}
- * 			{HIaPVWeb[X] OUT[X,Y] IN[X,Y]} )
- *      {HIaPV[X:Y] WHERE(NOT (HPwV[X:A,C,D]))}
+ * 			{HPwIV[X:Y] WHERE(HPwV[X:Y] AND (HPwV[X:Y] OR HPwV[X:Y]))}
+ * 			{HPwIV[X:Y] RANK(best) WHERE(HPwV[X:Y])}
+ * 			{HPwIV[X:Y]}
+ * 			{HPwIVWeb[X] OUT[X,Y] IN[X,Y]} )
+ *      {HPwIV[X:Y] WHERE(NOT (HPwV[X:A,C,D]))}
  * 		{HPwQV[X:Y TO Z] ASC RANK(preferred) LIMIT(10)}
- * 		{HIaPVTree[X:Y] QUALIFY(HPwV[X:Y]) AND (HPwV[X:Y] OR HPwV[X:Y])) WHERE(link[X,Y])}
- *		{HIaPV[X:Y] QUALIFY(NOT (HPwV[X:A,C,D]))} )
+ * 		{HPwIVTree[X:Y] QUALIFY(HPwV[X:Y]) AND (HPwV[X:Y] OR HPwV[X:Y])) WHERE(link[X,Y])}
+ *		{HPwIV[X:$SOMEITEMS]}
+ *		{HPwIV[X:Y] QUALIFY(NOT (HPwV[X:A,C,D]))} )
  * 	INTERSECT(
- * 		{HIaPVWeb[X] OUT[X,Y] IN[X,Y] MAXDEPTH(Z) RANK(best)}
+ * 		{HPwIVWeb[X] OUT[X,Y] IN[X,Y] MAXDEPTH(Z) RANK(best)}
  * 		{HPwAnyV[X,Y,Z] RANK(preferred) QUALIFY(HPwV[X:"Y"])}
  * 		{HPwCV[X:AROUND A B C,AROUND A B C] QUALIFY(HPwV[P:X]) WHERE(link[X,Y])} )
+ * )
+ * GIVEN (
+ *		$SOMEITEMS = ({HPwIVWeb[X] OUT[X,Y]})
+ *		$OTHERITEMS = ({HPwIVWeb[$SOMEITEMS] IN[X,Y]})
  * )
  */
 class WdqQueryParser {
 	const RE_FLOAT = '[-+]?[0-9]*\.?[0-9]+';
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
 	const RE_DATE = '(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z';
+
+	const VAR_RE = '\$[a-zA-Z_]+';
+
 	const FLD_BASIC = '/^(id|sitelinks|labels|claims)$/';
 	const FLD_MAP = '/^((?:sitelinks|labels)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 	const FLD_CLAIMS = '/^(claims\[\$?\d+\])(?:\[rank\s*=\s*([a-z]+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
@@ -62,29 +71,49 @@ class WdqQueryParser {
 		$rest = $s;
 
 		// Get the properties selecteed
-		$props = self::consume( $rest, '()' );
+		$props = self::consumePair( $rest, '()' );
 
-		$rest = ltrim( $rest );
-		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
+		// Get the FROM query
+		$token = self::consumeWord( $rest );
 		if ( $token !== 'FROM' ) {
 			throw new ParseException( "Expected FROM: $s" );
+		} elseif ( $rest === '' ) {
+			throw new ParseException( "Missing FROM query '$s'" );
+		} elseif ( $rest[0] === '{' ) {
+			$setQuery = '{' . self::consumePair( $rest, '{}' ) . '}';
+		} else {
+			// UNION/INTERSECT/DIFFERENCE
+			$token = self::consumeWord( $rest );
+			$setQuery = "$token(" . self::consumePair( $rest, '()' ) . ")";
 		}
-		$rest = ltrim( substr( $rest, strlen( $token ) ) );
-		$query = self::parseSetOp( $rest, $map );
+
+		$givenMap = array();
+		// Given any GIVEN assignments
+		if ( strlen( $rest ) ) {
+			$token = self::consumeWord( $rest );
+			if ( $token === 'GIVEN' ) {
+				$given = self::consumePair( $rest, '()' );
+				$givenMap = self::parseGiven( $given );
+			}
+		}
+
+		if ( strlen( $rest ) ) {
+			throw new ParseException( "Excess query statements found: $rest" );
+		}
 
 		// Validate the properties selected.
 		// Enforce that [] fields use aliases (they otherwise get called out1, out2...)
 		// @note: propagate certain * fields from subqueries that could be useful
-		$proj = array( '*depth', '*debug' );
+		$proj = array( '*depth', '*distance' );
 		foreach ( explode( ',', $props ) as $prop ) {
 			$prop = trim( $prop );
 			$m = array();
 			if ( preg_match( self::FLD_BASIC, $prop ) ) {
-				$proj[] = "out.{$prop} AS {$prop}";
+				$proj[] = "{$prop} AS {$prop}";
 			} elseif ( preg_match( self::FLD_MAP, $prop, $m ) ) {
-				$proj[] = "out.{$m[1]} AS {$m[2]}";
+				$proj[] = "{$m[1]} AS {$m[2]}";
 			} elseif ( preg_match( self::FLD_CLAIMS, $prop, $m ) ) {
-				$field = "out.{$m[1]}";
+				$field = "{$m[1]}";
 				// Per https://github.com/orientechnologies/orientdb/issues/3284
 				// we only get one filter, so make it on rank
 				// https://bugs.php.net/bug.php?id=51881
@@ -104,6 +133,11 @@ class WdqQueryParser {
 		}
 		$proj = implode( ',', $proj );
 
+		$query = self::parseSetOp( $setQuery, $givenMap );
+		if ( strlen( $setQuery ) ) {
+			throw new ParseException( "Excess query statements found: $rest" );
+		}
+
 		$sql = "SELECT $proj FROM ($query) TIMEOUT $timeout LIMIT $limit";
 
 		return self::unstripQuotedStrings( $sql, $map );
@@ -111,152 +145,181 @@ class WdqQueryParser {
 
 	/**
 	 * @param string $s
-	 * @param array $map
+	 * @return array
+	 */
+	protected static function parseGiven( $s ) {
+		$map = array();
+
+		$rest = $s;
+		while ( strlen( $rest ) ) {
+			$variable = self::consumeWord( $rest );
+			if ( preg_match( "/^" . self::VAR_RE . "$/", $variable ) ) {
+				$token = self::consumeWord( $rest );
+				if ( $token !== '=' ) {
+					throw new ParseException( "Expected =: $rest" );
+				}
+				$map[$variable] = self::parseSetOp( $rest, $map );
+			} else {
+				throw new ParseException( "Bad variable: $variable" );
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * @param string $rest
+	 * @param array $givenMap
 	 * @return string
 	 */
-	protected static function parseSetOp( $s, array $map ) {
-		$s = trim( $s );
+	protected static function parseSetOp( &$rest, array $givenMap ) {
+		$orig = $rest;
+		if ( $rest[0] === '{' ) {
+			$set = self::consumePair( $rest, "{}" );
+			return self::parseSet( $set, $givenMap );
+		}
 
-		static $ops = array( 'UNION(', 'INTERSECT(', 'DIFFERENCE(' );
+		static $ops = array( 'UNION', 'INTERSECT', 'DIFFERENCE' );
 
-		$token = substr( $s, 0, strcspn( $s, " \t\n\r" ) );
-		if ( $token[0] === '{' && substr( $s, -1 ) === '}' ) {
-			return self::parseSet( substr( $s, 1, -1 ), $map );
-		} elseif ( in_array( $token, $ops ) && substr( $s, -1 ) === ')' ) {
-			$rest = trim( substr( $s, strlen( $token ), -1 ) );
-
+		$operation = self::consumeWord( $rest );
+		if ( in_array( $operation, $ops ) ) {
+			$argRest = self::consumePair( $rest, "()" );
 			$argSets = array();
-			while ( strlen( $rest ) ) {
-				$stoken = substr( $rest, 0, strcspn( $rest, " \t\n\r" ) );
-				if ( $stoken[0] === '{' ) {
-					$set = self::consume( $rest, '{}' );
-					$argSets[] = '(' . self::parseSet( $set, $map ) . ')';
-				} else { // nested UNION/DIFFERENCE/INTERSECT...
-					$rest = substr( $rest, strlen( $stoken ) - 1 );
-					$sargs = self::consume( $rest, '()' );
-					$set = $stoken . $sargs . ')';
-					$argSets[] = '(' . self::parseSetOp( $set, $map ) . ')';
+			while ( strlen( $argRest ) ) {
+				if ( $argRest[0] === '{' ) {
+					$set = self::consumePair( $argRest, '{}' );
+					$argSets[] = '(' . self::parseSet( $set, $givenMap ) . ')';
+					continue;
 				}
-				$rest = ltrim( $rest );
+				// Nested UNION/DIFFERENCE/INTERSECT...
+				$argSets[] = '(' . self::parseSetOp( $argRest, $givenMap ) . ')';
 			}
-
 			if ( !$argSets ) {
-				throw new ParseException( "Unparsable: $s" );
+				throw new ParseException( "$operation missing arguments: $rest" );
+			} elseif ( count( $argSets ) == 1 ) {
+				return $argSets[0];
 			}
 
-			if ( $token === 'UNION(' ) {
+			if ( $operation === 'UNION' ) {
 				return implode( ' UNIONALL ', $argSets );
-			} elseif ( $token === 'INTERSECT(' ) {
-				if ( count( $argSets ) == 1 ) {
-					return $argSets[0];
-				}
+			} elseif ( $operation === 'INTERSECT' ) {
 				$where = array();
 				for ( $i=1; $i < count( $argSets ); ++$i ) {
-					$where[] = 'out IN ' . $argSets[$i];
+					$where[] = '@RID IN ' . $argSets[$i];
 				}
 				return 'SELECT FROM ' . $argSets[0] . ' WHERE ' . implode( ' AND ', $where );
-			} elseif ( $token === 'DIFFERENCE(' ) {
-				if ( count( $argSets ) == 1 ) {
-					return $argSets[0];
-				}
+			} elseif ( $operation === 'DIFFERENCE' ) {
 				$where = array();
 				for ( $i=1; $i < count( $argSets ); ++$i ) {
-					$where[] = 'out NOT IN ' . $argSets[$i];
+					$where[] = '@RID NOT IN ' . $argSets[$i];
 				}
 				return 'SELECT FROM ' . $argSets[0] . ' WHERE ' . implode( ' AND ', $where );
 			}
 			throw new ParseException( "Unreachable state." );
 		}
 
-		throw new ParseException( "Unparsable: $s" );
+		throw new ParseException( "Unparsable set: $orig" );
 	}
 
 	/**
 	 * Parse things like
-	 * "HIaPV[X:A,B,C] QUALIFY(HPwQV[X:Y]) WHERE(~HIaPV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y]))"
+	 * "HPwIV[X:A,B,C] QUALIFY(HPwQV[X:Y]) WHERE(~HPwIV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y]))"
 	 *
 	 * @param string $s
-	 * @param array $map
+	 * @param array $givenMap
 	 * @return string
 	 */
-	protected static function parseSet( $s, array $map ) {
+	protected static function parseSet( $s, array $givenMap ) {
+		$rest = $s;
 		$sql = null;
-		$s = trim( $s );
 
 		// Qualifier conditions normally applied in edge class WHERE
 		$qualiferPrefix = 'qlfrs';
-		// Filter conditions normally applied in edge class WHERE
-		$filteringPrefix = 'out.claims';
+		// Filter conditions normally applied in vertex class WHERE
+		$claimPrefix = 'claims';
 
 		$m = array();
 		$dlist = '(?:\d+,?)+';
+		$glist = '(?:' . self::VAR_RE . ',?)+'; // item IDs generators via GIVEN
 		// Get the primary select condition (using some index)
-		if ( preg_match( "/^(HPwNoV|HPwSomeV|HPwAnyV)\[($dlist)\]\s*/", $s, $m ) ) {
+		if ( preg_match( "/^(HPwNoV|HPwSomeV|HPwAnyV)\[($dlist)\]\s*/", $rest, $m ) ) {
 			// HPwAnyV gets items with specific or "some" values for the properties
 			$classes = ( $m[1] === 'HPwAnyV' )
 				? 'HPwIV,HPwQV,HPwCV,HPwSV,HPwTV,HPwSomeV'
 				: $m[1];
 			$pIds = explode( ',', $m[2] );
 			$inClause = self::sqlIN( 'iid', $pIds );
-			$sql = "SELECT DISTINCT(out) AS out FROM (" .
+			$sql = "SELECT expand(DISTINCT(out)) FROM (" .
 				"SELECT expand(inE($classes)) FROM Property WHERE \$RCOND\$ AND $inClause AND \$QCOND\$)";
-		} elseif ( preg_match( "/^HIaPV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
+		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
-			$iIds = explode( ',', $m[2] );
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
 			$orClause = array();
-			foreach ( $iIds as $iId ) {
+			foreach ( explode( ',', $m[2] ) as $iId ) {
 				$orClause[] = "iid=$iId AND pid=$pId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE \$RCOND\$ AND $orClause AND \$QCOND\$";
-		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
+			$sql = "SELECT expand(DISTINCT(out)) FROM HIaPV " .
+				"WHERE $orClause AND \$RCOND\$ AND \$QCOND\$";
+		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
-			$valIds = explode( ',', $m[2] );
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
 			$orClause = array();
-			foreach ( $valIds as $valId ) {
-				$orClause[] = "(iid=$pId AND val=$valId)";
+			foreach ( explode( ',', $m[2] ) as $valId ) {
+				$orClause[] = "iid=$pId AND val=$valId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE \$RCOND\$ AND $orClause AND \$QCOND\$";
-		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
+			$sql = "SELECT expand(DISTINCT(out)) FROM HPwSV " .
+				"WHERE ($orClause) AND \$RCOND\$ AND \$QCOND\$";
+		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
 			$where = ( $class === 'HPwTV' )
-				? self::parsePeriodDive( 'val', $m[3] )
-				: self::parseRangeDive( 'val', $m[3] );
+				? self::parsePeriodDive( 'val', $m[3], "iid=$pId" )
+				: self::parseRangeDive( 'val', $m[3], "iid=$pId" );
 			$order = isset( $m[4] ) ? $m[4] : null;
-			$sql = "SELECT DISTINCT(out) AS out FROM $class " .
-				"WHERE \$RCOND\$ AND iid=$pId AND $where AND \$QCOND\$";
+			$sql = "SELECT expand(DISTINCT(out)) FROM $class " .
+				"WHERE \$RCOND\$ AND $where AND \$QCOND\$";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
-		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $s, $m ) ) {
+		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			$where = self::parseAroundDive( $m[2] );
-			$sql = "SELECT DISTINCT(out) AS out FROM HPwCV " .
-				"WHERE \$RCOND\$ AND iid=$pId AND $where AND \$QCOND\$";
-		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
+			$sql = "SELECT expand(DISTINCT(out)) FROM HPwCV " .
+				"WHERE $where AND iid=$pId AND \$RCOND\$ AND \$QCOND\$";
+		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
-			$sql = "SELECT @RID AS out FROM Item WHERE $inClause";
+			$sql = "SELECT FROM Item WHERE $inClause";
 			$qualiferPrefix = null; // makes no sense
-			$filteringPrefix = ''; // queries Item class, not edge class
-		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
+		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$valIds = explode( ',', $m[1] );
 			$orClause = array();
 			foreach ( $valIds as $valId ) {
 				$orClause[] = "sitelinks CONTAINSVALUE $valId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT DISTINCT(@RID) AS out FROM Item WHERE $orClause";
+			$sql = "SELECT FROM Item WHERE $orClause";
 			$qualiferPrefix = null; // makes no sense
-			$filteringPrefix = ''; // queries Item class, not edge class
 		} elseif ( preg_match(
-			"/^HIaPVWeb\[($dlist)\](?:\s+OUT\[($dlist)\])?(?:\s+IN\[($dlist)\])?(?:\s+MAXDEPTH\((\d+)\))?\s*/", $s, $m )
+			"/^HPwIVWeb\[($dlist|$glist)\](?:\s+OUT\[($dlist)\])?(?:\s+IN\[($dlist)\])?(?:\s+MAXDEPTH\((\d+)\))?\s*/", $rest, $m )
 		) {
-			$iIds = explode( ',', $m[1] );
+			if ( preg_match( "/^$dlist$/", $m[1] ) ) {
+				$iIds = explode( ',', $m[1] );
+				$from = "SELECT FROM Item WHERE " . self::sqlIN( 'id', $iIds );
+			} else {
+				$union = array();
+				foreach ( explode( ',', $m[1] ) as $variable ) {
+					if ( isset( $givenMap[$variable] ) ) {
+						$union[] = $givenMap[$variable];
+					} else {
+						throw new ParseException( "No $variable entry in GIVEN clause: $s" );
+					}
+				}
+				$from = "SELECT FROM (" . implode( ' UNIONALL ', $union ) . ")";
+			}
+
 			// https://bugs.php.net/bug.php?id=51881
 			$pIdsFD = empty( $m[2] ) ? array() : explode( ',', $m[2] );
 			$pIdsRV = empty( $m[3] ) ? array() : explode( ',', $m[3] );
@@ -283,106 +346,95 @@ class WdqQueryParser {
 
 			$tfields = implode( ',', $tfields );
 
-			$inClause = self::sqlIN( 'id', $iIds );
 			if ( $tfields ) {
 				$sql =
-					"SELECT @RID AS out,\$depth AS *depth FROM (" .
+					"SELECT *,\$depth AS *depth FROM (" .
 						"TRAVERSE $tfields " .
-						"FROM (SELECT FROM Item WHERE $inClause) " .
+						"FROM ($from) " .
 						"WHILE ($depthCond AND (@class='Item' OR (\$QCOND\$))) " .
 						"STRATEGY BREADTH_FIRST" .
 					") WHERE @class='Item'";
 			} else {
 				// Just grab the root items
-				$sql = "SELECT @RID AS out FROM Item WHERE ($inClause)";
-				$filteringPrefix = ''; // queries Item class, not edge class
+				$sql = $from;
 			}
 		} else {
 			throw new ParseException( "Invalid index query: $s" );
 		}
 
 		// Skip past the stuff handled above
-		$rest = substr( $s, strlen( $m[0] ) );
+		$rest = substr( $rest, strlen( $m[0] ) );
 
-		$rest = trim( $rest );
-		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
-		// Check if there is a RANK condition
-		if ( $token === 'RANK' ) {
-			$rest = substr( $rest, strlen( $token ) );
-			$rank = self::consume( $rest, '()' );
+		$limit = 0;
+		$where = '';
+		while ( strlen( $rest ) ) {
+			$token = self::consumeWord( $rest );
+			// Check if there is a RANK condition
+			if ( $token === 'RANK' ) {
+				$rank = self::consumePair( $rest, '()' );
+				if ( $rank === 'best' ) {
+					$rankCond = "best=1";
+					// https://github.com/orientechnologies/orientdb/issues/513
+					// @note: can't filter on rank >= 0 just yet...
+					$rankFilter = "[best=1]";
+				} elseif ( $rank === 'deprecated' ) { // performance
+					throw new ParseException( "rank=deprecated filter is not supported" );
+				} elseif ( isset( self::$rankMap[$rank] ) ) {
+					$rankCond = "rank=" . self::$rankMap[$rank];
+					$rankFilter = "[rank=" . self::$rankMap[$rank];
+				} else {
+					throw new ParseException( "Bad rank: '$rank'" );
+				}
 
-			if ( $rank === 'best' ) {
-				$rankCond = "best=1";
-				// https://github.com/orientechnologies/orientdb/issues/513
-				// @note: can't filter on rank >= 0 just yet...
-				$rankFilter = "[best=1]";
-			} elseif ( $rank === 'deprecated' ) { // performance
-				throw new ParseException( "rank=deprecated filter is not supported" );
-			} elseif ( isset( self::$rankMap[$rank] ) ) {
-				$rankCond = "rank=" . self::$rankMap[$rank];
-				$rankFilter = "[rank=" . self::$rankMap[$rank];
+				$sql = str_replace( '$RCOND$', $rankCond, $sql );
+				$sql = str_replace( '$RFILTER$', $rankFilter, $sql );
+			// Check if there is a QUALIFY condition
+			} elseif ( $token === 'QUALIFY' ) {
+				if ( $qualiferPrefix === null ) {
+					throw new ParseException( "Index query does not support qualifiers: $s" );
+				}
+				$statement = self::consumePair( $rest, '()' );
+				$qualifyCond = self::parseFilters( $statement, $qualiferPrefix );
+				$sql = str_replace( '$QCOND$', $qualifyCond, $sql );
+			// Check if there is a WHERE condition
+			} elseif ( $token === 'WHERE' ) {
+				$statement = self::consumePair( $rest, '()' );
+				$where = self::parseFilters( $statement, $claimPrefix );
+			// Check if there is a LIMI condition
+			} elseif ( $token === 'LIMIT' ) {
+				$limit = (int)self::consumePair( $rest, '()' );
 			} else {
-				throw new ParseException( "Bad rank: '$rank'" );
-			}
-
-			$sql = str_replace( '$RCOND$', $rankCond, $sql );
-			$sql = str_replace( '$RFILTER$', $rankFilter, $sql );
-		} else {
-			$sql = str_replace( '$RCOND$', 'rank >= -1', $sql );
-			$sql = str_replace( '$RFILTER$', '', $sql );
-		}
-
-		$rest = trim( $rest );
-		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
-		// Check if there is a QUALIFY condition
-		if ( $token === 'QUALIFY' ) {
-			if ( $qualiferPrefix === null ) {
-				throw new ParseException( "Index query does not support qualifiers: $s" );
-			}
-			$rest = substr( $rest, strlen( $token ) );
-			$statement = self::consume( $rest, '()' );
-			$qualifyCond = self::parseFilters( $statement, $qualiferPrefix, $map );
-			$sql = str_replace( '$QCOND$', " AND $qualifyCond", $sql );
-		} else {
-			$sql = str_replace( '$QCOND$', '1=1', $sql );
-		}
-
-		$rest = trim( $rest );
-		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
-		// Check if there is a WHERE condition
-		if ( $token === 'WHERE' ) {
-			$rest = substr( $rest, strlen( $token ) );
-			$statement = self::consume( $rest, '()' );
-			$sql .= " AND (" . self::parseFilters( $statement, $filteringPrefix, $map ) . ")";
-		}
-
-		$rest = trim( $rest );
-		$token = substr( $rest, 0, strcspn( $rest, " \t\n\r(" ) );
-		// Check if there is a LIMI condition
-		if ( $token === 'LIMIT' ) {
-			$rest = substr( $rest, strlen( $token ) );
-			$limit = (int)self::consume( $rest, '()' );
-			if ( $limit > 0 ) {
-				$sql .= " LIMIT $limit";
+				throw new ParseException( "Unexpected token: $token" );
 			}
 		}
+
+		if ( $where !== '' ) {
+			$sql .= " AND ($where)";
+		}
+		if ( $limit > 0 ) {
+			$sql .= " LIMIT $limit";
+		}
+
+		// Apply defaults for rank/qualifiers if not specified
+		$sql = str_replace( '$RCOND$', '(rank >= 0)', $sql );
+		$sql = str_replace( '$QCOND$', '(rank >= 0)', $sql ); // dummy
+		$sql = str_replace( '$RFILTER$', '', $sql );
 
 		if ( strlen( $rest ) ) {
-			throw new ParseException( "Excess query statements found: $rest" );
+			throw new ParseException( "Excess set statements: $rest" );
 		}
 
 		return $sql;
 	}
 
 	/**
-	 * Parse things like "HIaPV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y])"
+	 * Parse things like "HPwIV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y])"
 	 *
 	 * @param string $s
-	 * @param string $fldPrefix
-	 * @param array $map
+	 * @param string $claimPrefix
 	 * @return string
 	 */
-	protected static function parseFilters( $s, $fldPrefix, array $map ) {
+	protected static function parseFilters( $s, $claimPrefix ) {
 		$rest = trim( $s );
 
 		$junction = null; // AND/OR
@@ -391,13 +443,13 @@ class WdqQueryParser {
 		$where = array();
 		while ( strlen( $rest ) ) {
 			if ( $rest[0] === '(' ) {
-				$statement = self::consume( $rest , '()' );
-				$where[] = self::parseFilters( $statement, $fldPrefix, $map );
+				$statement = self::consumePair( $rest , '()' );
+				$where[] = self::parseFilters( $statement, $claimPrefix );
 			} elseif ( preg_match( '/^(NOT)\s+\(/', $rest, $m ) ) {
 				$operator = $m[1];
 				$rest = substr( $rest, strlen( $m[0] ) - 1 );
-				$statement = self::consume( $rest , '()' );
-				$where[] = 'NOT (' . self::parseFilter( $statement, $fldPrefix, $map ) . ')';
+				$statement = self::consumePair( $rest , '()' );
+				$where[] = 'NOT (' . self::parseFilter( $statement, $claimPrefix ) . ')';
 			} elseif ( preg_match( '/^(AND|OR)\s/', $rest, $m ) ) {
 				if ( $junction && $m[1] !== $junction ) {
 					// "(A AND B OR C)" is confusing and requires precendence order
@@ -408,8 +460,8 @@ class WdqQueryParser {
 			} else {
 				$token = substr( $rest, 0, strcspn( $rest, " \t\n\r[" ) );
 				$rest = substr( $rest, strlen( $token ) );
-				$args = self::consume( $rest, '[]' );
-				$where[] = self::parseFilter( "{$token}[{$args}]", $fldPrefix, $map );
+				$args = self::consumePair( $rest, '[]' );
+				$where[] = self::parseFilter( "{$token}[{$args}]", $claimPrefix );
 			}
 			$rest = ltrim( $rest );
 		}
@@ -424,7 +476,7 @@ class WdqQueryParser {
 	}
 
 	/**
-	 * Parse things like "HIaPV[X:A,C-D]"
+	 * Parse things like "HPwIV[X:A,C-D]"
 	 *
 	 * See https://github.com/orientechnologies/orientdb/wiki/SQL-Where
 	 * Lack of full "NOT" operator support means we have to be careful.
@@ -432,11 +484,10 @@ class WdqQueryParser {
 	 * better field condition piping support.
 	 *
 	 * @param string $s
-	 * @param string $fldPrefix
-	 * @param array $map
+	 * @param string $claimPrefix
 	 * @return string
 	 */
-	protected static function parseFilter( $s, $fldPrefix, array $map ) {
+	protected static function parseFilter( $s, $claimPrefix ) {
 		$where = array();
 
 		$s = trim( $s );
@@ -459,7 +510,7 @@ class WdqQueryParser {
 			}
 			$orClause = array();
 			foreach ( explode( ',', $m[2] ) as $pId ) {
-				$orClause[] = "{$fldPrefix}['$pId'] contains (snaktype in $stype)";
+				$orClause[] = "{$claimPrefix}['$pId'] contains (snaktype in $stype)";
 			}
 			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
 		} elseif ( preg_match( "/^HPwV\[(\d+):([^]]+)\]$/", $s, $m ) ) {
@@ -468,31 +519,33 @@ class WdqQueryParser {
 			foreach ( explode( ',', $m[2] ) as $val ) {
 				if ( preg_match( "/^($float)\s+TO\s+($float)$/", $val, $m ) ) {
 					list( , $a, $b ) = $m;
-					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue between $a and $b)";
+					// @note: supported in Orient 2.1?
+					$orClause[] = "{$claimPrefix}['$pId'] contains (datavalue between $a and $b)";
 				} elseif ( preg_match( "/^$float$/", $val ) ) {
-					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue = $val)";
+					$orClause[] = "{$claimPrefix}['$pId'] contains (datavalue = $val)";
 				} elseif ( preg_match( "/^($date)\s+TO\s+($date)/", $val, $m ) ) {
 					list( , $a, $b ) = $m;
+					// @note: supported in Orient 2.1?
 					// Dates are like -20001-01-01T00:00:00Z and +20001-01-01T00:00:00Z
 					// and can thus be compared lexographically for simplicity
-					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue between '$a' and '$b')";
+					$orClause[] = "{$claimPrefix}['$pId'] contains (datavalue between '$a' and '$b')";
 				} elseif ( preg_match( "/^$date$/", $val ) ) {
-					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue = '$val')";
+					$orClause[] = "{$claimPrefix}['$pId'] contains (datavalue = '$val')";
 				} elseif ( preg_match( "/^\$\d+$/", $val ) ) {
-					$orClause[] = "{$fldPrefix}['$pId'] contains (datavalue = '$val')";
+					$orClause[] = "{$claimPrefix}['$pId'] contains (datavalue = '$val')";
 				} else {
 					throw new ParseException( "Invalid quantity or range: $val" );
 				}
 			}
 			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
 		} elseif ( preg_match( "/^haslinks\[((?:\\$\d+,?)+)\]\$/", $s, $m ) ) {
-			if ( preg_match( '/(^|\.)qlfrs$/', $fldPrefix ) ) {
+			if ( preg_match( '/(^|\.)qlfrs$/', $claimPrefix ) ) {
 				throw new ParseException( "Invalid qualifier condition: $s" );
 			}
 			$valIds = explode( ',', $m[1] );
 			$orClause = array();
 			foreach ( $valIds as $valId ) {
-				$orClause[] = "{$fldPrefix}sitelinks CONTAINSKEY $valId";
+				$orClause[] = "sitelinks CONTAINSKEY $valId";
 			}
 			$where[] = '(' . implode( ' OR ', $orClause ) . ')';
 		} else {
@@ -509,21 +562,26 @@ class WdqQueryParser {
 	/**
 	 * Parse stuff like "A,B,-C TO D" for numeric index based queries
 	 *
+	 * Use of parentheses is very specific for the query planner
+	 *
 	 * @param string $field
 	 * @param string $s
+	 * @param string $cond Additional condition for each range/value
 	 * @return string
 	 */
-	protected static function parseRangeDive( $field, $s ) {
+	protected static function parseRangeDive( $field, $s, $cond = '' ) {
 		$where = array();
+
+		$cond = $cond ? "$cond AND " : "";
 
 		$m = array();
 		$float = self::RE_FLOAT;
 		foreach ( explode( ',', $s ) as $v ) {
 			$v = trim( $v );
 			if ( preg_match( "/^$float\$/", $v ) ) {
-				$where[] = "$field=$v";
+				$where[] = "{$cond}{$field}=$v";
 			} elseif ( preg_match( "/^($float)\s+TO\s+($float)\$/", $v, $m ) ) {
-				$where[] = "($field BETWEEN {$m[1]} AND {$m[2]})";
+				$where[] = "{$cond}{$field} BETWEEN {$m[1]} AND {$m[2]}";
 			} else {
 				throw new ParseException( "Unparsable: $v" );
 			}
@@ -533,18 +591,23 @@ class WdqQueryParser {
 			throw new ParseException( "Unparsable range: $s" );
 		}
 
-		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
+		return '(' . implode( ') OR (', $where ) . ')';
 	}
 
 	/**
 	 * Parse stuff like "A,B,-C TO D" for timestamp index based queries
 	 *
+	 * Use of parentheses is very specific for the query planner
+	 *
 	 * @param string $field
 	 * @param string $s
+	 * @param string $cond Additional condition for each range/value
 	 * @return string
 	 */
-	protected static function parsePeriodDive( $field, $s ) {
+	protected static function parsePeriodDive( $field, $s, $cond = '' ) {
 		$where = array();
+
+		$cond = $cond ? "$cond AND " : "";
 
 		$m = array();
 		foreach ( explode( ',', $s ) as $v ) {
@@ -556,13 +619,13 @@ class WdqQueryParser {
 				if ( $at === false || $bt === false ) {
 					throw new ParseException( "Unparsable timestamps: $v" );
 				}
-				$where[] = "($field BETWEEN $at AND $bt)";
+				$where[] = "{$cond}{$field} BETWEEN $at AND $bt";
 			} else {
 				$t = WdqUtils::getUnixTimeFromISO8601( $v );
 				if ( $t === false ) {
 					throw new ParseException( "Unparsable timestamps: $v" );
 				}
-				$where[] = "$field=$t";
+				$where[] = "{$cond}{$field}=$t";
 			}
 		}
 
@@ -570,7 +633,7 @@ class WdqQueryParser {
 			throw new ParseException( "Unparsable period: $s" );
 		}
 
-		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
+		return '(' . implode( ') OR (', $where ) . ')';
 	}
 
 	/**
@@ -626,6 +689,23 @@ class WdqQueryParser {
 	}
 
 	/**
+	 * Get the first verb and consume it (non-whitespace, non-bracket chars)
+	 *
+	 * @param string $s
+	 * @return string Token
+	 */
+	protected static function consumeWord( &$s ) {
+		$orig = $s;
+		$s = ltrim( $s );
+		$token = substr( $s, 0, strcspn( $s, " \t\n\r({[" ) );
+		if ( !strlen( $token ) ) {
+			throw new ParseException( "Expected token: $orig" );
+		}
+		$s = ltrim( substr( $s, strlen( $token ) ) );
+		return $token;
+	}
+
+	/**
 	 * Take a string starting with a open bracket and find the closing bracket,
 	 * returning the contents inside the brackets and consuming that part of $s.
 	 *
@@ -633,12 +713,12 @@ class WdqQueryParser {
 	 * @param string $pair e.g. "()", "[]", "{}"
 	 * @return string
 	 */
-	protected static function consume( &$s, $pair ) {
+	protected static function consumePair( &$s, $pair ) {
 		$orig = $s;
 		list ( $open, $close ) = $pair;
 
 		if ( $s[0] !== $open ) {
-			throw new ParseException( "Unparsable: $orig" );
+			throw new ParseException( "Expected $pair pair: $orig" );
 		}
 
 		$depth = 1;
@@ -660,8 +740,9 @@ class WdqQueryParser {
 		}
 
 		$s = substr( $s, $i + 1 ); // consume the matching section and brackets
+		$s = ltrim( $s );
 
-		return $matching;
+		return trim( $matching );
 	}
 
 	/**

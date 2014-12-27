@@ -96,7 +96,7 @@ class WdqUpdater {
 
 		if ( isset( $item['claims'] ) ) {
 			// Include simplified claims for easy filtering/selecting
-			$coreItem['claims'] = $this->getSimpliedClaims( $item['claims'] );
+			$coreItem['claims'] = (object)$this->getSimpliedClaims( $item['claims'] );
 			// Include the property IDs (pids) referenced for tracking
 			$coreItem += $this->getReferenceIdSet( $item['claims'] );
 		}
@@ -612,7 +612,7 @@ class WdqUpdater {
 
 		if ( $rcode != 200 ) {
 			$tsql = substr( $sql, 0, 255 );
-			throw new Exception( "Command failed ($rcode).\n\nSent:\n$tsql...\n\nGot:\n$rbody" );
+			throw new Exception( "Query failed ($rcode).\n\nSent:\n$tsql...\n\nGot:\n$rbody" );
 		}
 
 		$response = json_decode( $rbody, true );
