@@ -45,7 +45,7 @@ function main() {
 		print( "WDQ -> OrientSQL:\n$sql\n\n" );
 
 		$limit = 1000; // sanity
-		print( "Running (querying $url)...\n" );
+		print( "Querying $url...\n" );
 		$start = microtime( true );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( array(
 			'method'  => 'GET',
@@ -69,7 +69,9 @@ function main() {
 				++$count;
 				$obj = array();
 				foreach ( $record as $key => $value ) {
-					if ( $key[0] !== '@' ) {
+					if ( $key === '*depth' ) {
+						$obj[$key] = $value / 2; // only count vertex steps
+					} elseif ( $key[0] !== '@' ) {
 						$obj[$key] = $value;
 					}
 				}

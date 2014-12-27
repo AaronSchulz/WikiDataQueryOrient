@@ -10,6 +10,7 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwAnyV[279
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwAnyV[31,279] LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPV[31:2590631] LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPV[31:5] LIMIT(5)}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40][rank=best] AS P40,claims[19][rank=best] AS P19) FROM {HIaPV[31:5] LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[31] AS P31) FROM {items[23] WHERE(haslinks["enwiki"])}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[31] AS P31) FROM {items[1339,350,34,64,747,24242,636,3] WHERE(haslinks["enwiki"])}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {linkedto["enwiki#Universe"]}';
@@ -37,9 +38,10 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM INTERSECT( {
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM DIFFERENCE( {HIaPV[31:1,2,3]} {HPwCV[131:AROUND 1.1 -2.2 3.3,AROUND -1.1 -2.2 3.3]} )';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM UNION( {HIaPV[31:1,2,3]} {HPwCV[131:AROUND 1.1 -2.2 3.3,AROUND -1.1 -2.2 3.3]} )';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM UNION( {HIaPV[31:1,2,3]} INTERSECT( {HPwSV[311:"cat","says","meow"]} {HPwQV[31:1.0,2,33 TO 63]} ) )';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPVWeb[23505] OUTGOING[40] RANK(best)}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPVWeb[23505] INCOMING[40] RANK(best)}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPVWeb[30] OUTGOING[150] INCOMING[17,131]}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40] AS P40) FROM {HIaPVWeb[23505] OUT[40] RANK(best)}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40] AS P40) FROM {HIaPVWeb[23505] IN[40] RANK(best)}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40] AS P40) FROM {HIaPVWeb[23505] OUT[40] IN[40] RANK(best)}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HIaPVWeb[30] OUT[150] IN[17,131]}';
 
 foreach ( $q as $query ) {
 	print( $query . "\n=====\n" );

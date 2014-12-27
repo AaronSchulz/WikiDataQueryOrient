@@ -14,7 +14,7 @@
  * FROM
  * UNION(
  * 	DIFFERENCE(
- *		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]}
+ *		{HIaPVWeb[X] OUT[X,Y] IN[X,Y]}
  *		{HPwQV[X:A,B,-C TO D] DESC LIMIT(100)} )
  * 	UNION(
  * 		{HIaPV[X:A,B,C] WHERE(HPwV[X:A,C,D] AND (HPwV[X:Y TO Z] OR HPwV[X:Y]))}
@@ -23,15 +23,15 @@
  * 			{HIaPV[X:Y] WHERE(HPwV[X:Y] AND (HPwV[X:Y] OR HPwV[X:Y]))}
  * 			{HIaPV[X:Y] RANK(best) WHERE(HPwV[X:Y])}
  * 			{HIaPV[X:Y]}
- * 			{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y]} )
+ * 			{HIaPVWeb[X] OUT[X,Y] IN[X,Y]} )
  *      {HIaPV[X:Y] WHERE(NOT (HPwV[X:A,C,D]))}
  * 		{HPwQV[X:Y TO Z] ASC RANK(preferred) LIMIT(10)}
  * 		{HIaPVTree[X:Y] QUALIFY(HPwV[X:Y]) AND (HPwV[X:Y] OR HPwV[X:Y])) WHERE(link[X,Y])}
  *		{HIaPV[X:Y] QUALIFY(NOT (HPwV[X:A,C,D]))} )
  * 	INTERSECT(
- * 		{HIaPVWeb[X] OUTGOING[X,Y] INCOMING[X,Y] RANK(best)}
+ * 		{HIaPVWeb[X] OUT[X,Y] IN[X,Y] MAXDEPTH(Z) RANK(best)}
  * 		{HPwAnyV[X,Y,Z] RANK(preferred) QUALIFY(HPwV[X:"Y"])}
- * 		{HPwCV[X:(AROUND A B C),(AROUND A B C)] QUALIFY(HPwV[P:X]) WHERE(link[X,Y])} )
+ * 		{HPwCV[X:AROUND A B C,AROUND A B C] QUALIFY(HPwV[P:X]) WHERE(link[X,Y])} )
  * )
  */
 class WdqQueryParser {
@@ -74,7 +74,8 @@ class WdqQueryParser {
 
 		// Validate the properties selected.
 		// Enforce that [] fields use aliases (they otherwise get called out1, out2...)
-		$proj = array();
+		// @note: propagate certain * fields from subqueries that could be useful
+		$proj = array( '*depth', '*debug' );
 		foreach ( explode( ',', $props ) as $prop ) {
 			$prop = trim( $prop );
 			$m = array();
@@ -198,7 +199,7 @@ class WdqQueryParser {
 			$pIds = explode( ',', $m[2] );
 			$inClause = self::sqlIN( 'iid', $pIds );
 			$sql = "SELECT DISTINCT(out) AS out FROM (" .
-				"SELECT expand(inE($classes)) FROM Property WHERE \$RCOND\$ AND $inClause\$QCOND\$)";
+				"SELECT expand(inE($classes)) FROM Property WHERE \$RCOND\$ AND $inClause AND \$QCOND\$)";
 		} elseif ( preg_match( "/^HIaPV\[(\d+):($dlist)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$iIds = explode( ',', $m[2] );
@@ -208,7 +209,7 @@ class WdqQueryParser {
 				$orClause[] = "iid=$iId AND pid=$pId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE \$RCOND\$ AND $orClause\$QCOND\$";
+			$sql = "SELECT DISTINCT(out) AS out FROM HIaPV WHERE \$RCOND\$ AND $orClause AND \$QCOND\$";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $s, $m ) ) {
 			$pId = $m[1];
 			$valIds = explode( ',', $m[2] );
@@ -218,7 +219,7 @@ class WdqQueryParser {
 				$orClause[] = "(iid=$pId AND val=$valId)";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE \$RCOND\$ AND $orClause\$QCOND\$";
+			$sql = "SELECT DISTINCT(out) AS out FROM HPwSV WHERE \$RCOND\$ AND $orClause AND \$QCOND\$";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $s, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
@@ -227,7 +228,7 @@ class WdqQueryParser {
 				: self::parseRangeDive( 'val', $m[3] );
 			$order = isset( $m[4] ) ? $m[4] : null;
 			$sql = "SELECT DISTINCT(out) AS out FROM $class " .
-				"WHERE \$RCOND\$ AND iid=$pId AND $where\$QCOND\$";
+				"WHERE \$RCOND\$ AND iid=$pId AND $where AND \$QCOND\$";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
@@ -235,7 +236,7 @@ class WdqQueryParser {
 			$pId = $m[1];
 			$where = self::parseAroundDive( $m[2] );
 			$sql = "SELECT DISTINCT(out) AS out FROM HPwCV " .
-				"WHERE \$RCOND\$ AND iid=$pId AND $where\$QCOND\$";
+				"WHERE \$RCOND\$ AND iid=$pId AND $where AND \$QCOND\$";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $s, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
@@ -253,36 +254,43 @@ class WdqQueryParser {
 			$qualiferPrefix = null; // makes no sense
 			$filteringPrefix = ''; // queries Item class, not edge class
 		} elseif ( preg_match(
-			"/^HIaPVWeb\[($dlist)\](?:\s+OUTGOING\[($dlist)\])?(?:\s+INCOMING\[($dlist)\])?\s*/", $s, $m )
+			"/^HIaPVWeb\[($dlist)\](?:\s+OUT\[($dlist)\])?(?:\s+IN\[($dlist)\])?(?:\s+MAXDEPTH\((\d+)\))?\s*/", $s, $m )
 		) {
 			$iIds = explode( ',', $m[1] );
 			// https://bugs.php.net/bug.php?id=51881
 			$pIdsFD = empty( $m[2] ) ? array() : explode( ',', $m[2] );
 			$pIdsRV = empty( $m[3] ) ? array() : explode( ',', $m[3] );
+			// We traverse I->E->I->..., so on each item $depth is 2X the vertex depth
+			$maxDepth = empty( $m[4] ) ? null : 2 * $m[4];
 
+			// As we inspect an edge, one side is the vertex we came from, and the
+			// other is the one we want to go to. We can follow both out_ and in_ for
+			// all edges, since we only inspect edges of the right type/direction.
 			$tfields = array();
-			$whileCond = array();
-			if ( $pIdsFD ) {
-				$tfields[] = 'Item.out_HIaPV';
-				$tfields[] = 'HIaPV.in';
+			foreach ( $pIdsFD as $pId ) {
 				// Edges followed in forwards direction are filtered on certain PIDs
-				$whileCond[] = '(out=$parent.$current AND ' . self::sqlIN( 'pid', $pIdsFD ) . ')';
+				$tfields[] = "Item.out_HIaPV[pid=$pId]\$RFILTER\$";
+				$tfields[] = "HIaPV.in";
 			}
-			if ( $pIdsRV ) {
-				$tfields[] = 'Item.in_HIaPV';
-				$tfields[] = 'HIaPV.out';
+			foreach ( $pIdsRV as $pId ) {
 				// Edges followed in reverse direction are filtered on certain PIDs
-				$whileCond[] = '(in=$parent.$current AND ' . self::sqlIN( 'pid', $pIdsRV ) . ')';
+				$tfields[] = "Item.in_HIaPV[pid=$pId]\$RFILTER\$";
+				$tfields[] = "HIaPV.out";
 			}
+			$depthCond = $maxDepth
+				? "\$depth <= $maxDepth"
+				: "\$depth >= 0";
+
 			$tfields = implode( ',', $tfields );
-			$whileCond = implode( ' OR ', $whileCond );
 
 			$inClause = self::sqlIN( 'id', $iIds );
 			if ( $tfields ) {
-				$sql = "SELECT @RID AS out FROM (" .
-					"TRAVERSE $tfields " .
-					"FROM (select FROM Item WHERE $inClause) " .
-					"WHILE (@class='Item' OR (\$RCOND\$ AND ($whileCond)\$QCOND\$))" .
+				$sql =
+					"SELECT @RID AS out,\$depth AS *depth FROM (" .
+						"TRAVERSE $tfields " .
+						"FROM (SELECT FROM Item WHERE $inClause) " .
+						"WHILE ($depthCond AND (@class='Item' OR (\$QCOND\$))) " .
+						"STRATEGY BREADTH_FIRST" .
 					") WHERE @class='Item'";
 			} else {
 				// Just grab the root items
@@ -304,18 +312,24 @@ class WdqQueryParser {
 			$rank = self::consume( $rest, '()' );
 
 			if ( $rank === 'best' ) {
-				$rankCond = "best=1 AND rank >= 0";
+				$rankCond = "best=1";
+				// https://github.com/orientechnologies/orientdb/issues/513
+				// @note: can't filter on rank >= 0 just yet...
+				$rankFilter = "[best=1]";
 			} elseif ( $rank === 'deprecated' ) { // performance
 				throw new ParseException( "rank=deprecated filter is not supported" );
 			} elseif ( isset( self::$rankMap[$rank] ) ) {
 				$rankCond = "rank=" . self::$rankMap[$rank];
+				$rankFilter = "[rank=" . self::$rankMap[$rank];
 			} else {
 				throw new ParseException( "Bad rank: '$rank'" );
 			}
 
 			$sql = str_replace( '$RCOND$', $rankCond, $sql );
+			$sql = str_replace( '$RFILTER$', $rankFilter, $sql );
 		} else {
-			$sql = str_replace( '$RCOND$', 'rank >= 0', $sql );
+			$sql = str_replace( '$RCOND$', 'rank >= -1', $sql );
+			$sql = str_replace( '$RFILTER$', '', $sql );
 		}
 
 		$rest = trim( $rest );
@@ -330,7 +344,7 @@ class WdqQueryParser {
 			$qualifyCond = self::parseFilters( $statement, $qualiferPrefix, $map );
 			$sql = str_replace( '$QCOND$', " AND $qualifyCond", $sql );
 		} else {
-			$sql = str_replace( '$QCOND$', '', $sql );
+			$sql = str_replace( '$QCOND$', '1=1', $sql );
 		}
 
 		$rest = trim( $rest );

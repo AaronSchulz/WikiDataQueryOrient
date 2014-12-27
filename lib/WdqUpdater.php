@@ -661,6 +661,8 @@ class WdqUpdater {
 				// https://github.com/orientechnologies/orientdb/issues/2424
 				$value = rtrim( $value, '\\' );
 				$value = str_replace( "\n", " ", $value );
+				// XXX: https://github.com/orientechnologies/orientdb/issues/2690
+				$value = str_replace( '\u', 'u', $value );
 				$set[] = "$key='" . addcslashes( $value, "'\\" ) . "'";
 			} else {
 				$set[] = "$key=" . WdqUtils::toJSON( $value );
