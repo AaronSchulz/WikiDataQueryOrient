@@ -604,11 +604,18 @@ class WdqUpdater {
 	 * @throws Exception
 	 */
 	public function tryQuery( $sql, $limit = 20 ) {
-		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( array(
+		$req = array(
 			'method'  => 'GET',
 			'url'     => "{$this->url}/query/WikiData/sql/" . rawurlencode( $sql ) . "/$limit",
 			'headers' => array( 'Cookie' => "OSESSIONID={$this->getSessionId()}" )
-		) );
+		);
+		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( $req );
+		if ( $rcode !== 200 ) {
+			// XXX: re-auth sometimes works
+			$this->sessionId = null;
+			$req['headers']['Cookie'] = "OSESSIONID={$this->getSessionId()}";
+			list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( $req );
+		}
 
 		if ( $rcode != 200 ) {
 			$tsql = substr( $sql, 0, 255 );

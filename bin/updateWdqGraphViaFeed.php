@@ -140,7 +140,8 @@ function main() {
 			}
 		}
 
-		print( "Updating graph...\n" );
+		$n = count( $applyChangesInOrder );
+		print( "Updating graph [$n change(s)]...\n" );
 		foreach ( $applyChangesInOrder as $change ) {
 			list( $json, $isNew ) = $change;
 			$entity = json_decode( $json, true );
@@ -163,12 +164,12 @@ function main() {
 		}
 
 		// Update the replication position
-		$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
-		$updater->tryCommand(
-			"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
-		print( "Updated replication position to $lastTimestamp.\n" );
-
 		if ( $changeCount > 0 ) {
+			$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
+			$updater->tryCommand(
+				"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
+			print( "Updated replication position to $lastTimestamp.\n" );
+		} else {
 			print( "No changes found...\n" );
 			sleep( 1 );
 		}
