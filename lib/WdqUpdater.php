@@ -92,6 +92,7 @@ class WdqUpdater {
 			'id'        => WdqUtils::wdcToLong( $item['id'] ),
 			'labels'    => $labels ? (object)$labels : (object)array(),
 			'sitelinks' => $siteLinks ? (object)$siteLinks : (object)array(),
+			'deleted'   => null
 		);
 
 		if ( isset( $item['claims'] ) ) {
@@ -246,9 +247,19 @@ class WdqUpdater {
 	 * @return string
 	 */
 	protected function importPropertyVertexSQL( array $item, $update ) {
+		$labels = array(); // map of (<language> => <label>)
+		// Flatten labels to a 1-level list for querying
+		if ( isset( $item['labels'] ) ) {
+			foreach ( $item['labels'] as $lang => $label ) {
+				$labels[$lang] = $label['value'];
+			}
+		}
+
 		$coreItem = array(
 			'id'       => WdqUtils::wdcToLong( $item['id'] ),
-			'datatype' => $item['datatype']
+			'datatype' => $item['datatype'],
+			'labels'   => $labels ? (object)$labels : (object)array(),
+			'deleted'  => null
 		);
 
 		if ( $update === 'update' || $update === 'upsert' ) {
@@ -515,29 +526,37 @@ class WdqUpdater {
 	}
 
 	/**
+	 * @param string $class
 	 * @param string|int|array $ids 64-bit integers
 	 */
-	public function deleteItemVertexes( $ids ) {
+	public function deleteEntities( $class, $ids ) {
+		if ( !$ids ) {
+			return;
+		}
 		// https://github.com/orientechnologies/orientdb/issues/3150
 		$orClause = array();
 		foreach ( (array)$ids as $id ) {
 			$orClause[] = "id='$id'";
 		}
 		$orClause = implode( ' OR ', $orClause );
-		$this->tryCommand( "delete vertex Item where ($orClause)" );
+		$this->tryCommand( "update $class set deleted=1 where ($orClause)" );
 	}
 
 	/**
+	 * @param string $class
 	 * @param string|int|array $ids 64-bit integers
 	 */
-	public function deletePropertyVertexes( $ids ) {
+	public function restoreEntities( $class, $ids ) {
+		if ( !$ids ) {
+			return;
+		}
 		// https://github.com/orientechnologies/orientdb/issues/3150
 		$orClause = array();
 		foreach ( (array)$ids as $id ) {
 			$orClause[] = "id='$id'";
 		}
 		$orClause = implode( ' OR ', $orClause );
-		$this->tryCommand( "delete vertex Property where ($orClause)" );
+		$this->tryCommand( "update $class set deleted=NULL where ($orClause)" );
 	}
 
 	/**
@@ -671,6 +690,8 @@ class WdqUpdater {
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2690
 				$value = str_replace( '\u', 'u', $value );
 				$set[] = "$key='" . addcslashes( $value, "'\\" ) . "'";
+			} elseif ( $value === null ) {
+				$set[] = "$key=NULL";
 			} else {
 				$set[] = "$key=" . WdqUtils::toJSON( $value );
 			}

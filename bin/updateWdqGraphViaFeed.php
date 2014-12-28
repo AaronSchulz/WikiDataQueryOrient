@@ -63,13 +63,15 @@ function main() {
 
 		print( "Requesting changes from " . API_QUERY_URL . "...($rccontinue)\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
-		$result = json_decode( $rbody, true );
+		$result = decodeJSON( $rbody );
 
 		$rccontinue = $result['continue']['rccontinue'];
 
 		$changeCount = count( $result['query']['recentchanges'] );
 		$itemsDeleted = array(); // list of Item IDs
+		$itemsRestored = array(); // list of Item IDs
 		$propertiesDeleted = array(); // list of Property IDs
+		$propertiesRestored = array(); // list of Property IDs
 		$titlesChanged = array(); // rev ID => (ns,title,is new)
 		foreach ( $result['query']['recentchanges'] as $change ) {
 			$lastTimestamp = $change['timestamp'];
@@ -94,10 +96,10 @@ function main() {
 				}
 			} elseif ( $logTypeAction === 'delete/restore' ) {
 				print( "{$change['timestamp']} Restored page: {$change['title']}\n" );
-				$revId = getRevIdAtTimestamp( $change['title'], $change['timestamp'], $http );
-				if ( $revId ) { // not deleted/moved again?
-					$titlesChanged[$change['revid']] =
-						array( $change['ns'], $change['title'], true );
+				if ( $change['ns'] == 0 ) { // Item
+					$itemsRestored[] = $id;
+				} elseif ( $change['ns'] == 120 ) { // Property
+					$propertiesRestored[] = $id;
 				}
 			} elseif ( in_array( $logTypeAction, array( 'move/move', 'move-move_redir' ) ) ) {
 				print( "{$change['timestamp']} Moved page: {$change['title']}\n" );
@@ -120,7 +122,7 @@ function main() {
 
 		print( "Requesting corresponding revision content from " . API_QUERY_URL . "...\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
-		$result = json_decode( $rbody, true );
+		$result = decodeJSON( $rbody );
 
 		$applyChanges = array(); // map of rev ID => (json, is new)
 		foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
@@ -144,7 +146,7 @@ function main() {
 		print( "Updating graph [$n change(s)]...\n" );
 		foreach ( $applyChangesInOrder as $change ) {
 			list( $json, $isNew ) = $change;
-			$entity = json_decode( $json, true );
+			$entity = decodeJSON( $json );
 			if ( isset( $entity['entity'] ) && isset( $entity['redirect'] ) ) {
 				print( "Ignored entity redirect: $json\n" );
 			} elseif ( $entity['type'] === 'item' ) {
@@ -157,10 +159,16 @@ function main() {
 			}
 		}
 		if ( $itemsDeleted ) {
-			$updater->deleteItemVertexes( $itemsDeleted );
+			$updater->deleteEntities( 'Item', $itemsDeleted );
 		}
 		if ( $propertiesDeleted ) {
-			$updater->deletePropertyVertexes( $itemsDeleted );
+			$updater->deleteEntities( 'Property', $propertiesDeleted );
+		}
+		if ( $itemsRestored ) {
+			$updater->restoreEntities( 'Item', $itemsRestored );
+		}
+		if ( $propertiesRestored ) {
+			$updater->restoreEntities( 'Property', $propertiesRestored );
 		}
 
 		// Update the replication position
@@ -171,7 +179,7 @@ function main() {
 			print( "Updated replication position to $lastTimestamp.\n" );
 		} else {
 			print( "No changes found...\n" );
-			sleep( 1 );
+			sleep( 5 );
 		}
 	}
 }
@@ -204,7 +212,7 @@ function determineRCPosition( WdqUpdater $updater, MultiHttpClient $http ) {
 
 		print( "Getting creation timestamp of 'Q{$record['id']}' via API.\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
-		$result = json_decode( $rbody, true );
+		$result = decodeJSON( $rbody );
 
 		foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
 			if ( isset( $pageInfo['revisions'] ) ) { // wasn't deleted
@@ -227,30 +235,12 @@ function determineRCPosition( WdqUpdater $updater, MultiHttpClient $http ) {
 	return $cTimestamp;
 }
 
-function getRevIdAtTimestamp( $title, $timestamp, MultiHttpClient $http ) {
-	$revId = null;
-
-	$query = array(
-		'action' => 'query', 'prop' => 'revisions', 'titles' => $title,
-		'rvdir'  => 'older', 'rvprop' => 'ids', 'rvstart' => $timestamp, 'rvlimit' => 1,
-		'format' => 'json'
-	);
-	$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => $query );
-
-	print( "Getting newest revision before '$timestamp' for '$title' via API.\n" );
-	list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
-	$result = json_decode( $rbody, true );
-
-	foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
-		if ( isset( $pageInfo['revisions'] ) ) { // wasn't deleted
-			if ( !isset( $pageInfo['revisions'][0]['revid'] ) ) {
-				die( "Expected 'revid' field from API response!\n" );
-			}
-			$revId = $pageInfo['revisions'][0]['revid'];
-		}
+function decodeJSON( $s ) {
+	$res = json_decode( $s, true );
+	if ( $res === null ) {
+		throw new Exception( "Could not decode: $s" );
 	}
-
-	return $revId;
+	return $res;
 }
 
 # Begin execution

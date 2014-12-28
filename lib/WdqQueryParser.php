@@ -242,15 +242,17 @@ class WdqQueryParser {
 		$dlist = '(?:\d+,?)+';
 		$glist = '(?:' . self::VAR_RE . ',?)+'; // item IDs generators via GIVEN
 		// Get the primary select condition (using some index)
-		if ( preg_match( "/^(HPwNoV|HPwSomeV|HPwAnyV)\[($dlist)\]\s*/", $rest, $m ) ) {
+		if ( preg_match( "/^HPwSomeV\[($dlist)\]\s*/", $rest, $m ) ) {
 			// HPwAnyV gets items with specific or "some" values for the properties
-			$classes = ( $m[1] === 'HPwAnyV' )
-				? 'HPwIV,HPwQV,HPwCV,HPwSV,HPwTV,HPwSomeV'
-				: $m[1];
-			$pIds = explode( ',', $m[2] );
-			$inClause = self::sqlIN( 'iid', $pIds );
-			$sql = "SELECT expand(DISTINCT(out)) FROM (" .
-				"SELECT expand(inE($classes)) FROM Property WHERE \$RCOND\$ AND $inClause AND \$QCOND\$)";
+			$pIds = explode( ',', $m[1] );
+			$inClause = self::sqlIN( 'id', $pIds );
+			// @todo: rewrite after https://github.com/orientechnologies/orientdb/issues/513
+			$sql = "SELECT * FROM (" .
+				"TRAVERSE Property.in_HPwSomeV,HPwSomeV.out " .
+				"FROM (SELECT FROM Property WHERE $inClause) " .
+				"WHILE (@class <> 'HPwSomeV' OR (@QCOND@ AND @RCOND@ AND @ODCOND@)) " .
+				"STRATEGY DEPTH_FIRST" .
+			") WHERE @class='Item'";
 		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
@@ -260,7 +262,7 @@ class WdqQueryParser {
 			}
 			$orClause = self::sqlOR( $orClause );
 			$sql = "SELECT expand(DISTINCT(out)) FROM HIaPV " .
-				"WHERE $orClause AND \$RCOND\$ AND \$QCOND\$";
+				"WHERE $orClause AND @RCOND@ AND @QCOND@ AND @ODCOND@";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
@@ -270,7 +272,7 @@ class WdqQueryParser {
 			}
 			$orClause = self::sqlOR( $orClause );
 			$sql = "SELECT expand(DISTINCT(out)) FROM HPwSV " .
-				"WHERE ($orClause) AND \$RCOND\$ AND \$QCOND\$";
+				"WHERE ($orClause) AND @RCOND@ AND @QCOND@ AND @ODCOND@";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
@@ -279,7 +281,7 @@ class WdqQueryParser {
 				: self::parseRangeDive( 'val', $m[3], "iid=$pId" );
 			$order = isset( $m[4] ) ? $m[4] : null;
 			$sql = "SELECT expand(DISTINCT(out)) FROM $class " .
-				"WHERE \$RCOND\$ AND $where AND \$QCOND\$";
+				"WHERE @RCOND@ AND $where AND @QCOND@ AND @ODCOND@";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
@@ -287,11 +289,11 @@ class WdqQueryParser {
 			$pId = $m[1];
 			$where = self::parseAroundDive( $m[2] );
 			$sql = "SELECT expand(DISTINCT(out)) FROM HPwCV " .
-				"WHERE $where AND iid=$pId AND \$RCOND\$ AND \$QCOND\$";
+				"WHERE $where AND iid=$pId AND @RCOND@ AND @QCOND@ AND @ODCOND@";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
-			$sql = "SELECT FROM Item WHERE $inClause";
+			$sql = "SELECT FROM Item WHERE $inClause AND @DCOND@";
 			$qualiferPrefix = null; // makes no sense
 		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$valIds = explode( ',', $m[1] );
@@ -300,14 +302,14 @@ class WdqQueryParser {
 				$orClause[] = "sitelinks CONTAINSVALUE $valId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT FROM Item WHERE $orClause";
+			$sql = "SELECT FROM Item WHERE $orClause AND @DCOND@";
 			$qualiferPrefix = null; // makes no sense
 		} elseif ( preg_match(
 			"/^HPwIVWeb\[($dlist|$glist)\](?:\s+OUT\[($dlist)\])?(?:\s+IN\[($dlist)\])?(?:\s+MAXDEPTH\((\d+)\))?\s*/", $rest, $m )
 		) {
 			if ( preg_match( "/^$dlist$/", $m[1] ) ) {
 				$iIds = explode( ',', $m[1] );
-				$from = "SELECT FROM Item WHERE " . self::sqlIN( 'id', $iIds );
+				$from = "SELECT FROM Item WHERE " . self::sqlIN( 'id', $iIds ) . " AND @DCOND@";
 			} else {
 				$union = array();
 				foreach ( explode( ',', $m[1] ) as $variable ) {
@@ -332,12 +334,12 @@ class WdqQueryParser {
 			$tfields = array();
 			foreach ( $pIdsFD as $pId ) {
 				// Edges followed in forwards direction are filtered on certain PIDs
-				$tfields[] = "Item.out_HIaPV[pid=$pId]\$RFILTER\$";
+				$tfields[] = "Item.out_HIaPV[pid=$pId]@RFILTER@";
 				$tfields[] = "HIaPV.in";
 			}
 			foreach ( $pIdsRV as $pId ) {
 				// Edges followed in reverse direction are filtered on certain PIDs
-				$tfields[] = "Item.in_HIaPV[pid=$pId]\$RFILTER\$";
+				$tfields[] = "Item.in_HIaPV[pid=$pId]@RFILTER@";
 				$tfields[] = "HIaPV.out";
 			}
 			$depthCond = $maxDepth
@@ -351,7 +353,7 @@ class WdqQueryParser {
 					"SELECT *,\$depth AS *depth FROM (" .
 						"TRAVERSE $tfields " .
 						"FROM ($from) " .
-						"WHILE ($depthCond AND (@class='Item' OR (\$QCOND\$))) " .
+						"WHILE ($depthCond AND (@class='Item' OR (@QCOND@ AND @ODCOND@))) " .
 						"STRATEGY BREADTH_FIRST" .
 					") WHERE @class='Item'";
 			} else {
@@ -386,8 +388,8 @@ class WdqQueryParser {
 					throw new ParseException( "Bad rank: '$rank'" );
 				}
 
-				$sql = str_replace( '$RCOND$', $rankCond, $sql );
-				$sql = str_replace( '$RFILTER$', $rankFilter, $sql );
+				$sql = str_replace( '@RCOND@', $rankCond, $sql );
+				$sql = str_replace( '@RFILTER@', $rankFilter, $sql );
 			// Check if there is a QUALIFY condition
 			} elseif ( $token === 'QUALIFY' ) {
 				if ( $qualiferPrefix === null ) {
@@ -395,7 +397,7 @@ class WdqQueryParser {
 				}
 				$statement = self::consumePair( $rest, '()' );
 				$qualifyCond = self::parseFilters( $statement, $qualiferPrefix );
-				$sql = str_replace( '$QCOND$', $qualifyCond, $sql );
+				$sql = str_replace( '@QCOND@', $qualifyCond, $sql );
 			// Check if there is a WHERE condition
 			} elseif ( $token === 'WHERE' ) {
 				$statement = self::consumePair( $rest, '()' );
@@ -415,10 +417,13 @@ class WdqQueryParser {
 			$sql .= " LIMIT $limit";
 		}
 
+		// Apply non-deletion conditions
+		$sql = str_replace( '@DCOND@', 'deleted IS NULL', $sql );
+		$sql = str_replace( '@ODCOND@', 'out.deleted IS NULL', $sql );
 		// Apply defaults for rank/qualifiers if not specified
-		$sql = str_replace( '$RCOND$', '(rank >= 0)', $sql );
-		$sql = str_replace( '$QCOND$', '(rank >= 0)', $sql ); // dummy
-		$sql = str_replace( '$RFILTER$', '', $sql );
+		$sql = str_replace( '@RCOND@', '(rank >= 0)', $sql );
+		$sql = str_replace( '@QCOND@', '(rank >= 0)', $sql ); // dummy
+		$sql = str_replace( '@RFILTER@', '', $sql );
 
 		if ( strlen( $rest ) ) {
 			throw new ParseException( "Excess set statements: $rest" );

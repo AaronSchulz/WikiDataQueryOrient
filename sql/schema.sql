@@ -9,7 +9,7 @@ create database remote:localhost/WikiData root root plocal graph;
 -- Item pages (Q entity)
 create class Item extends V;
 create property Item.id long;
--- Store site links as a map of <language> => <label>
+-- Store labels as a map of <language> => <label>
 create property Item.labels EMBEDDEDMAP string;
 -- Store site links as a map of <site> => <site>#<title>
 create property Item.sitelinks EMBEDDEDMAP string;
@@ -18,6 +18,8 @@ create property Item.claims EMBEDDEDMAP embedded;
 -- Store the IDs of properties and items referenced
 create property Item.pids EMBEDDEDSET long; -- properties referenced
 create property Item.iids EMBEDDEDSET long; -- items referenced
+-- Flag things as deleted when deleted/moved
+create property Item.deleted boolean;
 -- Enforce basic field presence
 alter property Item.id MANDATORY true;
 alter property Item.labels MANDATORY true;
@@ -36,10 +38,16 @@ create index ItemIidsIdx on Item (iids,id) notunique;
 -- Property pages (P entity)
 create class Property extends V;
 create property Property.id long;
+-- Store labels as a map of <language> => <label>
+create property Property.labels EMBEDDEDMAP string;
 -- See See http://www.wikidata.org/wiki/Special:ListDatatypes
 create property Property.datatype string;
--- P codes are unique
+-- Flag things as deleted when deleted/moved
+create property Property.deleted boolean;
+-- Enforce basic field presence
 alter property Property.id MANDATORY true;
+alter property Property.labels MANDATORY true;
+-- P codes are unique
 create index ProperyIdIdx on Property (id) unique;
 
 -- "Item X has an unspecific value for Property Y" relationships

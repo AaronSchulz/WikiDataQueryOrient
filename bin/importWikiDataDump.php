@@ -114,8 +114,12 @@ function main() {
 	if ( $phase === 'vertexes' ) {
 		$batch = array();
 		$batchSize = 100;
+		$classes = array_map( 'strtolower', $classes );
 		iterateJsonDump( $dump, $modParams, $posFile,
-			function( $entity ) use ( $updater, $method, &$batch, $batchSize ) {
+			function( $entity ) use ( $updater, $method, $classes, &$batch, $batchSize ) {
+				if ( $classes !== null && !in_array( $entity['type'], $classes ) ) {
+					return false; // nothing to do
+				}
 				if ( $entity['type'] === 'item' ) {
 					print( 'Importing vertex for Item ' . $entity['id'] . " ($method)\n" );
 					$batch[] = $entity;
