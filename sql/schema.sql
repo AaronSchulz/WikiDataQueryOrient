@@ -66,6 +66,7 @@ alter property HPwSomeV.qlfrs MANDATORY true;
 alter property HPwSomeV.oid MANDATORY true;
 alter property HPwSomeV.iid MANDATORY true;
 alter property HPwSomeV.sid MANDATORY true;
+create index HPwSomeVIidIdx on HPwSomeV (iid, oid) notunique;
 
 -- "Item X has no value for Property Y" relationships
 create class HPwNoV extends E;
@@ -83,6 +84,7 @@ alter property HPwNoV.qlfrs MANDATORY true;
 alter property HPwNoV.oid MANDATORY true;
 alter property HPwNoV.iid MANDATORY true;
 alter property HPwNoV.sid MANDATORY true;
+create index HPwNoVIidIdx on HPwNoV (iid, oid) notunique;
 
 -- "Item X has quantity value Z for Property Y" relationships
 create class HPwQV extends E;
@@ -102,7 +104,7 @@ alter property HPwQV.qlfrs MANDATORY true;
 alter property HPwQV.oid MANDATORY true;
 alter property HPwQV.iid MANDATORY true;
 alter property HPwQV.sid MANDATORY true;
-create index HPwQVIidValIdx on HPwQV (iid, val) notunique;
+create index HPwQVIidValIdx on HPwQV (iid, val, oid) notunique;
 
 -- "Item X has timestamp value Z for Property Y" relationships
 create class HPwTV extends E;
@@ -122,7 +124,7 @@ alter property HPwTV.qlfrs MANDATORY true;
 alter property HPwTV.oid MANDATORY true;
 alter property HPwTV.iid MANDATORY true;
 alter property HPwTV.sid MANDATORY true;
-create index HPwTVIidValIdx on HPwTV (iid, val) notunique;
+create index HPwTVIidValIdx on HPwTV (iid, val, oid) notunique;
 
 -- "Item X has string value Z for Property Y" relationships
 create class HPwSV extends E;
@@ -203,7 +205,7 @@ alter property HIaPV.qlfrs MANDATORY true;
 alter property HIaPV.oid MANDATORY true;
 alter property HIaPV.iid MANDATORY true;
 alter property HIaPV.sid MANDATORY true;
-create index HIaPVIidPidIdx on HIaPV (iid, pid) notunique;
+create index HIaPVIidPidIdx on HIaPV (iid, pid, oid) notunique;
 
 -- Metadata table for tracking DB status info (e.g. for feed updates)
 create class DBStatus;

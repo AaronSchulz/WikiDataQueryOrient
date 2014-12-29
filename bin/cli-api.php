@@ -10,20 +10,18 @@ function main() {
 	$url = isset( $options['url'] ) ? $options['url'] : 'http://localhost:2480';
 
 	$http = new MultiHttpClient( array() );
-	list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( array(
-		'method'  => 'GET',
-		'url'     => "$url/connect/WikiData",
-		'headers' => array(
-			'Authorization' => "Basic " . base64_encode( "$user:$password" )
-		)
-	) );
-	$m = array();
-	if ( preg_match( '/(?:^|;)OSESSIONID=([^;]+);/', $rhdrs['set-cookie'], $m ) ) {
-		$sessionId = $m[1];
-		print( "Using session ID '$sessionId'\n" );
-	} else {
-		die( "Invalid authorization credentials ($rcode).\n" );
-	}
+	$engine = new WdqQueryEngine( $http, $url, $user, $password );
+
+	print( "
+
+           __  ___                                    __             ____     __
+          /  |/  /  ____ _   _____   __  __  _____   / /_   __  __  / __ \   / /
+         / /|_/ /  / __ `/  / ___/  / / / / / ___/  / __ \ / / / / / / / /  / /
+        / /  / /  / /_/ /  / /     / /_/ / / /__   / / / // /_/ / / /_/ /  / /___
+       /_/  /_/   \__,_/  /_/      \__, /  \___/  /_/ /_/ \__,_/  \___\_\ /_____/
+                                  /____/
+
+"	);
 
 	while ( true ) {
 		print( "Enter query:\n" );
@@ -42,44 +40,24 @@ function main() {
 			print( "Caught parser error: {$e->getMessage()}\n" );
 			continue;
 		}
-		print( "WDQ -> OrientSQL:\n$sql\n\n" );
+		print( "Converted to OrientSQL:\n$sql\n\n" );
 
-		$limit = 1000; // sanity
 		print( "Querying $url...\n" );
 		$start = microtime( true );
-		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( array(
-			'method'  => 'GET',
-			'url'     => "$url/query/WikiData/sql/" . rawurlencode( $sql ) . "/$limit",
-			'headers' => array( 'Cookie' => "OSESSIONID=$sessionId" )
-		) );
+		try {
+			$results = $engine->query( $query, 5000, 1000 );
+		} catch ( Exception $e ) {
+			print( "Caught error: {$e->getMessage()}\n" );
+			continue;
+		}
 		$elapsed = ( microtime( true ) - $start );
-		print( "Done in $elapsed seconds...\n" );
+		print( "Done in $elapsed seconds.\n" );
 
-		if ( $rcode == 401 ) {
-			die( "Got HTTP 401: authentication expired.\n" );
+		$flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT;
+		foreach ( $results as $record ) {
+			print( json_encode( $record, $flags ) . "\n" );
 		}
-
-		$response = json_decode( $rbody, true );
-		if ( $response === null ) {
-			print( "HTTP error ($rcode): could not decode response ($rerr).\n\n" );
-		} else {
-			$count = 0;
-			print( "Fetching results...\n" );
-			foreach ( $response['result'] as $record ) {
-				++$count;
-				$obj = array();
-				foreach ( $record as $key => $value ) {
-					if ( $key === '*depth' ) {
-						$obj[$key] = $value / 2; // only count vertex steps
-					} elseif ( $key[0] !== '@' ) {
-						$obj[$key] = $value;
-					}
-				}
-				$flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT;
-				print( json_encode( $obj, $flags ) . "\n" );
-			}
-			print "Query had $count results\n\n";
-		}
+		print "Query had " . count( $results ) . " result(s)\n\n";
 	}
 }
 

@@ -112,8 +112,13 @@ class WdqUpdater {
 			}
 		}
 
+		$id = WdqUtils::wdcToLong( $item['id'] );
+		if ( $id <= 0 ) {
+			throw new Exception( "Bad entity ID: $id" );
+		}
+
 		$coreItem = array(
-			'id'        => WdqUtils::wdcToLong( $item['id'] ),
+			'id'        => $id,
 			'labels'    => $labels ? (object)$labels : (object)array(),
 			'sitelinks' => $siteLinks ? (object)$siteLinks : (object)array(),
 			'deleted'   => null
@@ -277,8 +282,13 @@ class WdqUpdater {
 			}
 		}
 
+		$id = WdqUtils::wdcToLong( $item['id'] );
+		if ( $id <= 0 ) {
+			throw new Exception( "Bad entity ID: $id" );
+		}
+
 		$coreItem = array(
-			'id'       => WdqUtils::wdcToLong( $item['id'] ),
+			'id'       => $id,
 			'datatype' => $item['datatype'],
 			'labels'   => $labels ? (object)$labels : (object)array(),
 			'deleted'  => null

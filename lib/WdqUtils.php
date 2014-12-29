@@ -43,6 +43,32 @@ class WdqUtils {
 	}
 
 	/**
+	 * Convert UNIX timestamps into values like +20001-01-01T00:00:00Z
+	 *
+	 * @param string|int $time 64-bit UNIX timestamp
+	 * @return string|bool Readable date
+	 */
+	public static function getISO8601FromUnixTime( $time ) {
+		$date = new DateTime( "@$time" );
+		if ( !$date ) {
+			trigger_error( "Got unparsable date '$time'." );
+			return false;
+		}
+		$s = $date->format( 'Y-m-d\TH:i:s\Z' );
+		if ( $s === false ) {
+			trigger_error( "Got unformatable date '$time'." );
+			return false;
+		}
+		if ( $s[0] === '-' ) {
+			$sign = '-';
+			$s = substr( $s, 1 );
+		} else {
+			$sign = '+';
+		}
+		return $sign . str_pad( $s, 27, '0', STR_PAD_LEFT );
+	}
+
+	/**
 	 * @see http://www.satsig.net/lat_long.htm
 	 * @param array $coords Map of (lat,lon)
 	 * @return array|null
@@ -90,7 +116,8 @@ class WdqUtils {
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
 				$value = rtrim( $value, '\\' );
 				// XXX: https://github.com/orientechnologies/orientdb/issues/2690
-				$value = str_replace( array( '"', '\u' ), array( '”', 'u' ), $value );
+				#$value = str_replace( array( '"', '\u' ), array( '”', 'u' ), $value );
+				$value = str_replace( '"', '”', $value );
 				if ( $value !== $ovalue ) {
 					print( "JSON: converted value '$ovalue' => '$value'.\n" );
 				}
