@@ -72,7 +72,7 @@ function main() {
 		$itemsRestored = array(); // list of Item IDs
 		$propertiesDeleted = array(); // list of Property IDs
 		$propertiesRestored = array(); // list of Property IDs
-		$titlesChanged = array(); // rev ID => (ns,title,is new)
+		$titlesChanged = array(); // rev ID => (ns,title)
 		foreach ( $result['query']['recentchanges'] as $change ) {
 			$lastTimestamp = $change['timestamp'];
 			$logTypeAction = ( $change['type'] === 'log' )
@@ -80,10 +80,10 @@ function main() {
 				: null;
 			if ( $change['type'] === 'new' ) {
 				print( "{$change['timestamp']} New page: {$change['title']}\n" );
-				$titlesChanged[$change['revid']] = array( $change['ns'], $change['title'], true );
+				$titlesChanged[$change['revid']] = array( $change['ns'], $change['title'] );
 			} elseif ( $change['type'] === 'edit' ) {
 				print( "{$change['timestamp']} Modified page: {$change['title']}\n" );
-				$titlesChanged[$change['revid']] = array( $change['ns'], $change['title'], false );
+				$titlesChanged[$change['revid']] = array( $change['ns'], $change['title'] );
 			} elseif ( $logTypeAction === 'delete/delete' ) {
 				print( "{$change['timestamp']} Deleted page: {$change['title']}\n" );
 				if ( $change['ns'] == 0 ) { // Item
@@ -97,8 +97,11 @@ function main() {
 			} elseif ( $logTypeAction === 'delete/restore' ) {
 				print( "{$change['timestamp']} Restored page: {$change['title']}\n" );
 				if ( $change['ns'] == 0 ) { // Item
+					$id = WdqUtils::wdcToLong( $change['title'] );
 					$itemsRestored[] = $id;
 				} elseif ( $change['ns'] == 120 ) { // Property
+					list( $nstext, $key ) = explode( ':', $change['title'], 2 );
+					$id = WdqUtils::wdcToLong( $key );
 					$propertiesRestored[] = $id;
 				}
 			} elseif ( in_array( $logTypeAction, array( 'move/move', 'move-move_redir' ) ) ) {
@@ -124,18 +127,13 @@ function main() {
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
 		$result = decodeJSON( $rbody );
 
-		$applyChanges = array(); // map of rev ID => (json, is new)
+		$applyChanges = array(); // map of (rev ID => json)
 		foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
 			$change = $pageInfo['revisions'][0];
-			list( $ns, $title, $isNew ) = $titlesChanged[$change['revid']];
-			if ( $ns == 0 ) { // Item
-				$applyChanges[$change['revid']] = array( $change['*'], $isNew );
-			} elseif ( $ns == 120 ) { // Property
-				list( $nstext, $key ) = explode( ':', $title, 2 );
-				$applyChanges[$change['revid']] = array( $change['*'], $isNew );
-			}
+			list( $ns, $title ) = $titlesChanged[$change['revid']];
+			$applyChanges[$change['revid']] = $change['*'];
 		}
-		$applyChangesInOrder = array(); // order should match $titlesChanged
+		$applyChangesInOrder = array(); // $applyChanges with order matching $titlesChanged
 		foreach ( $titlesChanged as $revId => $change ) {
 			if ( isset( $applyChanges[$revId] ) ) {
 				$applyChangesInOrder[$revId] = $applyChanges[$revId];
@@ -144,16 +142,15 @@ function main() {
 
 		$n = count( $applyChangesInOrder );
 		print( "Updating graph [$n change(s)]...\n" );
-		foreach ( $applyChangesInOrder as $change ) {
-			list( $json, $isNew ) = $change;
+		foreach ( $applyChangesInOrder as $json ) {
 			$entity = decodeJSON( $json );
 			if ( isset( $entity['entity'] ) && isset( $entity['redirect'] ) ) {
 				print( "Ignored entity redirect: $json\n" );
 			} elseif ( $entity['type'] === 'item' ) {
-				$updater->importEntities( array( $entity ), $isNew ? 'insert' : 'update' );
+				$updater->importEntities( array( $entity ), 'upsert' );
 				$updater->makeEntityEdges( array( $entity ), 'rebuild' );
 			} elseif ( $entity['type'] === 'property' ) {
-				$updater->importEntities( array( $entity ), $isNew ? 'insert' : 'update' );
+				$updater->importEntities( array( $entity ), 'upsert' );
 			} else {
 				throw new Exception( "Got unkown item '$json'" );
 			}

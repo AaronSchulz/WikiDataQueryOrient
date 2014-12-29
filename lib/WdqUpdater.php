@@ -21,6 +21,8 @@ class WdqUpdater {
 	/** @var MapCacheLRU */
 	protected $iHitCache;
 
+	const ICACHE_SIZE = 10000;
+
 	/** @var array ENUM map for short integer field */
 	protected static $rankMap = array(
 		'preferred'  => 1,
@@ -39,24 +41,46 @@ class WdqUpdater {
 		$this->password = $auth['password'];
 
 		$this->iHitCache = new MapCacheLRU( 20 );
-		$this->iCache = new MapCacheLRU( 10000 );
+		$this->iCache = new MapCacheLRU( self::ICACHE_SIZE );
 	}
 
 	/**
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel/Primer
 	 *
 	 * @param array $entities
-	 * @param string $update (update/insert/upsert)
+	 * @param string $method (update/insert/upsert)
 	 * @throws Exception
 	 */
-	public function importEntities( array $entities, $update ) {
-		$queries = array();
+	public function importEntities( array $entities, $method ) {
+		if ( count( $entities ) > self::ICACHE_SIZE ) {
+			throw new Exception( "More than " . self::ICACHE_SIZE . " entities." );
+		}
 
+		if ( $method === 'upsert' ) {
+			$ids = array();
+			foreach ( $entities as $entity ) {
+				$ids[] = WdqUtils::wdcToLong( $entity['id'] );
+			}
+			$this->updateItemRIDCache( $ids );
+		}
+
+		$queries = array();
+		$willExists = array(); // map of (id => true)
 		foreach ( $entities as $entity ) {
+			if ( $method === 'upsert' ) {
+				$id = WdqUtils::wdcToLong( $entity['id'] );
+				$opMethod = ( $this->iCache->has( $id ) || isset( $willExists[$id] ) )
+					? 'update'
+					: 'insert';
+				$willExists[$id] = true;
+			} else {
+				$opMethod = $method;
+			}
+
 			if ( $entity['type'] === 'item' ) {
-				$queries[] = $this->importItemVertexSQL( $entity, $update );
+				$queries[] = $this->importItemVertexSQL( $entity, $opMethod );
 			} elseif ( $entity['type'] === 'property' ) {
-				$queries[] = $this->importPropertyVertexSQL( $entity, $update );
+				$queries[] = $this->importPropertyVertexSQL( $entity, $opMethod );
 			} else {
 				trigger_error( "Unrecognized entity of type '{$entity['type']}'." );
 			}
@@ -102,14 +126,12 @@ class WdqUpdater {
 			$coreItem += $this->getReferenceIdSet( $item['claims'] );
 		}
 
-		if ( $update === 'update' || $update === 'upsert' ) {
+		if ( $update === 'insert' ) {
+			return "create vertex Item content " . WdqUtils::toJSON( $coreItem );
+		} elseif ( $update === 'update' ) {
 			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
 			$set = $this->sqlSet( $coreItem );
 			return "update Item set $set where id={$coreItem['id']}";
-		}
-
-		if ( $update === 'insert' || $update === 'upsert' ) {
-			return "create vertex Item content " . WdqUtils::toJSON( $coreItem );
 		}
 
 		throw new Exception( "Bad method '$update'." );
@@ -262,14 +284,12 @@ class WdqUpdater {
 			'deleted'  => null
 		);
 
-		if ( $update === 'update' || $update === 'upsert' ) {
+		if ( $update === 'insert' ) {
+			return "create vertex Property content " . WdqUtils::toJSON( $coreItem );
+		} elseif ( $update === 'update' ) {
 			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
 			$set = $this->sqlSet( $coreItem );
 			return "update Property set $set where id={$coreItem['id']}";
-		}
-
-		if ( $update === 'insert' || $update === 'upsert' ) {
-			return "create vertex Property content " . WdqUtils::toJSON( $coreItem );
 		}
 
 		throw new Exception( "Bad method '$update'." );
@@ -436,9 +456,6 @@ class WdqUpdater {
 					$to = "(select from $toClass where id={$dvEdge['iid']})";
 					if ( $toClass === 'Item' ) {
 						$this->iHitCache->set( $dvEdge['iid'], 1 );
-						if ( mt_rand( 0, 999 ) == 0 ) {
-							$this->updateItemRIDCache( $this->iHitCache->getAllKeys() );
-						}
 					}
 				}
 
@@ -446,6 +463,10 @@ class WdqUpdater {
 					WdqUtils::toJSON( $dvEdge );
 				$queries[] = $sql;
 			}
+		}
+
+		if ( mt_rand( 0, 99 ) == 0 ) {
+			$this->updateItemRIDCache( $this->iHitCache->getAllKeys() );
 		}
 
 		return $queries;
@@ -730,17 +751,22 @@ class WdqUpdater {
 	 * @param array $ids
 	 */
 	protected function updateItemRIDCache( array $ids ) {
+		if ( count( $ids ) > 50 ) { // URL length limits
+			throw new Exception( "More than 20 entities." );
+		}
+
 		$orClause = array();
 		foreach ( $ids as $id ) {
 			if ( !$this->iCache->has( $id ) ) {
 				$orClause[] = "id=$id";
 			}
 		}
-		$orClause = implode( " OR ", $orClause );
-
-		$res = $this->tryQuery( "select id,@RID from Item where $orClause" );
-		foreach ( $res as $record ) {
-			$this->iCache->set( (int)$record['id'], $record['RID'] );
+		if ( $orClause ) {
+			$orClause = implode( " OR ", $orClause );
+			$res = $this->tryQuery( "select id,@RID from Item where $orClause" );
+			foreach ( $res as $record ) {
+				$this->iCache->set( (int)$record['id'], $record['RID'] );
+			}
 		}
 	}
 }
