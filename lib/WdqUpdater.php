@@ -751,16 +751,13 @@ class WdqUpdater {
 	 * @param array $ids
 	 */
 	protected function updateItemRIDCache( array $ids ) {
-		if ( count( $ids ) > 50 ) { // URL length limits
-			throw new Exception( "More than 20 entities." );
-		}
-
 		$orClause = array();
 		foreach ( $ids as $id ) {
 			if ( !$this->iCache->has( $id ) ) {
 				$orClause[] = "id=$id";
 			}
 		}
+
 		if ( $orClause ) {
 			$orClause = implode( " OR ", $orClause );
 			$res = $this->tryQuery( "select id,@RID from Item where $orClause" );

@@ -51,6 +51,9 @@ class WdqQueryParser {
 	const FLD_MAP = '/^((?:sitelinks|labels)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 	const FLD_CLAIMS = '/^(claims\[\$?\d+\])(?:\[rank\s*=\s*([a-z]+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
+	/** @var array Used for getting cross products from Edge class */
+	const OUT_ITEM_FIELDS = 'out.id AS id,out.labels AS labels,out.sitelinks AS sitelinks,out.claims AS claims';
+
 	/** @var array */
 	protected static $rankMap = array(
 		'deprecated' => -1,
@@ -250,7 +253,7 @@ class WdqQueryParser {
 			$sql = "SELECT * FROM (" .
 				"TRAVERSE Property.in_HPwSomeV,HPwSomeV.out " .
 				"FROM (SELECT FROM Property WHERE $inClause) " .
-				"WHILE (@class <> 'HPwSomeV' OR (@QCOND@ AND @RCOND@ AND @ODCOND@)) " .
+				"WHILE (@class <> 'HPwSomeV' OR (@ECOND@)) " .
 				"STRATEGY DEPTH_FIRST" .
 			") WHERE @class='Item'";
 		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*/", $rest, $m ) ) {
@@ -261,8 +264,7 @@ class WdqQueryParser {
 				$orClause[] = "iid=$iId AND pid=$pId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT expand(DISTINCT(out)) FROM HIaPV " .
-				"WHERE $orClause AND @RCOND@ AND @QCOND@ AND @ODCOND@";
+			$sql = "SELECT expand(DISTINCT(out)) FROM HIaPV WHERE $orClause AND @ECOND@";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
@@ -271,29 +273,29 @@ class WdqQueryParser {
 				$orClause[] = "iid=$pId AND val=$valId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT expand(DISTINCT(out)) FROM HPwSV " .
-				"WHERE ($orClause) AND @RCOND@ AND @QCOND@ AND @ODCOND@";
+			$sql = "SELECT expand(DISTINCT(out)) FROM HPwSV WHERE ($orClause) AND @ECOND@";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
-			$where = ( $class === 'HPwTV' )
+			$inRanges = ( $class === 'HPwTV' )
 				? self::parsePeriodDive( 'val', $m[3], "iid=$pId" )
 				: self::parseRangeDive( 'val', $m[3], "iid=$pId" );
 			$order = isset( $m[4] ) ? $m[4] : null;
-			$sql = "SELECT expand(DISTINCT(out)) FROM $class " .
-				"WHERE @RCOND@ AND $where AND @QCOND@ AND @ODCOND@";
+			$sql = "SELECT expand(DISTINCT(out)) FROM $class WHERE $inRanges AND @ECOND@";
 			if ( $order ) {
 				$sql .= " ORDER BY val $order";
 			}
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
-			$where = self::parseAroundDive( $m[2] );
-			$sql = "SELECT expand(DISTINCT(out)) FROM HPwCV " .
-				"WHERE $where AND iid=$pId AND @RCOND@ AND @QCOND@ AND @ODCOND@";
+			$around = self::parseAroundDive( $m[2] );
+			// XXX: work around lack of cross-product (e.g. out.*)
+			$fields = self::OUT_ITEM_FIELDS . ',MIN($distance) AS *distance';
+			// @note: could be several claims...use the closest one (good with rank=best)
+			$sql = "SELECT $fields FROM HPwCV WHERE $around AND iid=$pId AND @ECOND@ GROUP BY out";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
-			$sql = "SELECT FROM Item WHERE $inClause AND @DCOND@";
+			$sql = "SELECT FROM Item WHERE $inClause AND @ICOND@";
 			$qualiferPrefix = null; // makes no sense
 		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$valIds = explode( ',', $m[1] );
@@ -302,14 +304,14 @@ class WdqQueryParser {
 				$orClause[] = "sitelinks CONTAINSVALUE $valId";
 			}
 			$orClause = self::sqlOR( $orClause );
-			$sql = "SELECT FROM Item WHERE $orClause AND @DCOND@";
+			$sql = "SELECT FROM Item WHERE $orClause AND @ICOND@";
 			$qualiferPrefix = null; // makes no sense
 		} elseif ( preg_match(
 			"/^HPwIVWeb\[($dlist|$glist)\](?:\s+OUT\[($dlist)\])?(?:\s+IN\[($dlist)\])?(?:\s+MAXDEPTH\((\d+)\))?\s*/", $rest, $m )
 		) {
 			if ( preg_match( "/^$dlist$/", $m[1] ) ) {
 				$iIds = explode( ',', $m[1] );
-				$from = "SELECT FROM Item WHERE " . self::sqlIN( 'id', $iIds ) . " AND @DCOND@";
+				$from = "SELECT FROM Item WHERE " . self::sqlIN( 'id', $iIds ) . " AND @ICOND@";
 			} else {
 				$union = array();
 				foreach ( explode( ',', $m[1] ) as $variable ) {
@@ -334,12 +336,12 @@ class WdqQueryParser {
 			$tfields = array();
 			foreach ( $pIdsFD as $pId ) {
 				// Edges followed in forwards direction are filtered on certain PIDs
-				$tfields[] = "Item.out_HIaPV[pid=$pId]@RFILTER@";
+				$tfields[] = "Item.out_HIaPV[pid=$pId]";
 				$tfields[] = "HIaPV.in";
 			}
 			foreach ( $pIdsRV as $pId ) {
 				// Edges followed in reverse direction are filtered on certain PIDs
-				$tfields[] = "Item.in_HIaPV[pid=$pId]@RFILTER@";
+				$tfields[] = "Item.in_HIaPV[pid=$pId]";
 				$tfields[] = "HIaPV.out";
 			}
 			$depthCond = $maxDepth
@@ -353,7 +355,7 @@ class WdqQueryParser {
 					"SELECT *,\$depth AS *depth FROM (" .
 						"TRAVERSE $tfields " .
 						"FROM ($from) " .
-						"WHILE ($depthCond AND (@class='Item' OR (@QCOND@ AND @ODCOND@))) " .
+						"WHILE ($depthCond AND (@class='Item' OR (@ECOND@))) " .
 						"STRATEGY BREADTH_FIRST" .
 					") WHERE @class='Item'";
 			} else {
@@ -367,6 +369,10 @@ class WdqQueryParser {
 		// Skip past the stuff handled above
 		$rest = substr( $rest, strlen( $m[0] ) );
 
+		// Default conditions
+		$rankCond = 'rank >= 0';
+		$qualifyCond = '';
+
 		$limit = 0;
 		$where = '';
 		while ( strlen( $rest ) ) {
@@ -376,20 +382,13 @@ class WdqQueryParser {
 				$rank = self::consumePair( $rest, '()' );
 				if ( $rank === 'best' ) {
 					$rankCond = "best=1";
-					// https://github.com/orientechnologies/orientdb/issues/513
-					// @note: can't filter on rank >= 0 just yet...
-					$rankFilter = "[best=1]";
 				} elseif ( $rank === 'deprecated' ) { // performance
 					throw new ParseException( "rank=deprecated filter is not supported" );
 				} elseif ( isset( self::$rankMap[$rank] ) ) {
 					$rankCond = "rank=" . self::$rankMap[$rank];
-					$rankFilter = "[rank=" . self::$rankMap[$rank];
 				} else {
 					throw new ParseException( "Bad rank: '$rank'" );
 				}
-
-				$sql = str_replace( '@RCOND@', $rankCond, $sql );
-				$sql = str_replace( '@RFILTER@', $rankFilter, $sql );
 			// Check if there is a QUALIFY condition
 			} elseif ( $token === 'QUALIFY' ) {
 				if ( $qualiferPrefix === null ) {
@@ -397,7 +396,6 @@ class WdqQueryParser {
 				}
 				$statement = self::consumePair( $rest, '()' );
 				$qualifyCond = self::parseFilters( $statement, $qualiferPrefix );
-				$sql = str_replace( '@QCOND@', $qualifyCond, $sql );
 			// Check if there is a WHERE condition
 			} elseif ( $token === 'WHERE' ) {
 				$statement = self::consumePair( $rest, '()' );
@@ -417,13 +415,14 @@ class WdqQueryParser {
 			$sql .= " LIMIT $limit";
 		}
 
-		// Apply non-deletion conditions
-		$sql = str_replace( '@DCOND@', 'deleted IS NULL', $sql );
-		$sql = str_replace( '@ODCOND@', 'out.deleted IS NULL', $sql );
-		// Apply defaults for rank/qualifiers if not specified
-		$sql = str_replace( '@RCOND@', '(rank >= 0)', $sql );
-		$sql = str_replace( '@QCOND@', '(rank >= 0)', $sql ); // dummy
-		$sql = str_replace( '@RFILTER@', '', $sql );
+		// Apply item vertex filtering conditions
+		$sql = str_replace( '@ICOND@', 'deleted IS NULL', $sql );
+		// Apply edge filtering conditions
+		$edgeCond = implode( ' AND ', array_filter(
+			array( $rankCond, $qualifyCond, 'out.deleted IS NULL' ),
+			'strlen'
+		) );
+		$sql = str_replace( '@ECOND@', $edgeCond, $sql );
 
 		if ( strlen( $rest ) ) {
 			throw new ParseException( "Excess set statements: $rest" );
