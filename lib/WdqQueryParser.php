@@ -239,13 +239,15 @@ class WdqQueryParser {
 			$inRanges = self::parseRangeDive( 'iid', $m[1] );
 			$order = isset( $m[2] ) ? $m[2] : 'ASC';
 			$orderBy = "ORDER BY iid $order,oid $order";
-			$sql = "SELECT expand(DISTINCT(out)) FROM HPwSomeV WHERE $inRanges AND @ECOND@ $orderBy";
+			$fields = self::OUT_ITEM_FIELDS;
+			$sql = "SELECT $fields FROM HPwSomeV WHERE $inRanges AND @ECOND@ GROUP BY out $orderBy";
 		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			$inRanges = self::parseRangeDive( 'iid', $m[2], "pid=$pId" );
 			$order = isset( $m[3] ) ? $m[3] : 'ASC';
 			$orderBy = "ORDER BY iid $order,pid $order,oid $order";
-			$sql = "SELECT expand(DISTINCT(out)) FROM HIaPV WHERE $inRanges AND @ECOND@ $orderBy";
+			$fields = self::OUT_ITEM_FIELDS;
+			$sql = "SELECT $fields FROM HIaPV WHERE $inRanges AND @ECOND@ GROUP BY out $orderBy";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
@@ -255,7 +257,7 @@ class WdqQueryParser {
 			}
 			$or = self::sqlOR( $or );
 			$fields = self::OUT_ITEM_FIELDS . ",val as *value";
-			$sql = "SELECT $fields FROM HPwSV WHERE ($or) AND @ECOND@";
+			$sql = "SELECT $fields FROM HPwSV WHERE ($or) AND @ECOND@ GROUP BY out";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
@@ -269,14 +271,13 @@ class WdqQueryParser {
 			$order = isset( $m[4] ) ? $m[4] : 'ASC';
 			// @note: could be several claims...use the closest one (good with rank=best)
 			// @note: with several claims, *value may change depending on ASC vs DESC
-			$aggr = ( $order === 'ASC' ) ? 'MIN' : 'MAX';
 			$orderBy = "ORDER BY iid $order,val $order,oid $order";
-			$fields = self::OUT_ITEM_FIELDS . ",$aggr(val) AS $valField";
-			$sql = "SELECT $fields FROM $class WHERE $inRanges AND @ECOND@ $orderBy GROUP BY out";
+			$fields = self::OUT_ITEM_FIELDS . ",val AS $valField";
+			$sql = "SELECT $fields FROM $class WHERE $inRanges AND @ECOND@ GROUP BY out $orderBy";
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			$around = self::parseAroundDive( $m[2] );
-			$fields = self::OUT_ITEM_FIELDS . ',MIN($distance) AS *distance';
+			$fields = self::OUT_ITEM_FIELDS . ',$distance AS *distance';
 			// @note: could be several claims...use the closest one (good with rank=best)
 			$sql = "SELECT $fields FROM HPwCV WHERE $around AND iid=$pId AND @ECOND@ GROUP BY out";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {

@@ -50,14 +50,13 @@ function main() {
 			print( "Caught error: {$e->getMessage()}\n" );
 			continue;
 		}
-		$elapsed = ( microtime( true ) - $start );
-		print( "Done in $elapsed seconds.\n" );
+		$elapsed = round( 1000 * ( microtime( true ) - $start ), 6 );
 
 		$flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT;
 		foreach ( $results as $record ) {
 			print( json_encode( $record, $flags ) . "\n" );
 		}
-		print "Query had " . count( $results ) . " result(s)\n\n";
+		print "Query had " . count( $results ) . " result(s) [$elapsed ms]\n\n";
 	}
 }
 
