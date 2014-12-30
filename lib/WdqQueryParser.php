@@ -228,8 +228,6 @@ class WdqQueryParser {
 		$rest = $s;
 		$sql = null;
 
-		// Set queries that have an order can use individual LIMIT
-		$allowLimit = false;
 		// Qualifier conditions normally applied in edge class WHERE
 		$qualiferPrefix = 'qlfrs';
 
@@ -242,14 +240,12 @@ class WdqQueryParser {
 			$order = isset( $m[2] ) ? $m[2] : 'ASC';
 			$orderBy = "ORDER BY iid $order,oid $order";
 			$sql = "SELECT expand(DISTINCT(out)) FROM HPwSomeV WHERE $inRanges AND @ECOND@ $orderBy";
-			$allowLimit = true;
 		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			$inRanges = self::parseRangeDive( 'iid', $m[2], "pid=$pId" );
 			$order = isset( $m[3] ) ? $m[3] : 'ASC';
 			$orderBy = "ORDER BY iid $order,pid $order,oid $order";
 			$sql = "SELECT expand(DISTINCT(out)) FROM HIaPV WHERE $inRanges AND @ECOND@ $orderBy";
-			$allowLimit = true;
 		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
@@ -277,14 +273,12 @@ class WdqQueryParser {
 			$orderBy = "ORDER BY iid $order,val $order,oid $order";
 			$fields = self::OUT_ITEM_FIELDS . ",$aggr(val) AS $valField";
 			$sql = "SELECT $fields FROM $class WHERE $inRanges AND @ECOND@ $orderBy GROUP BY out";
-			$allowLimit = true;
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			$around = self::parseAroundDive( $m[2] );
 			$fields = self::OUT_ITEM_FIELDS . ',MIN($distance) AS *distance';
 			// @note: could be several claims...use the closest one (good with rank=best)
 			$sql = "SELECT $fields FROM HPwCV WHERE $around AND iid=$pId AND @ECOND@ GROUP BY out";
-			$allowLimit = true;
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
@@ -391,9 +385,6 @@ class WdqQueryParser {
 				$eClaimCond = self::parseFilters( $statement, 'out.claims' );
 			// Check if there is a LIMI condition
 			} elseif ( $token === 'LIMIT' ) {
-				if ( !$allowLimit ) {
-					throw new ParseException( "Index query does not support LIMIT: $s" );
-				}
 				$limit = (int)self::consumePair( $rest, '()' );
 			} else {
 				throw new ParseException( "Unexpected token: $token" );

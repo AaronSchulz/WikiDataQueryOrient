@@ -38,6 +38,7 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40] AS P40)
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40] AS P40) FROM {HPwIVWeb[23505] IN[40] RANK(best)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40] AS P40) FROM {HPwIVWeb[23505] OUT[40] IN[40] RANK(best)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIVWeb[30] OUT[150] IN[17,131]}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIVWeb[9682] OUT[25,22,40,26,7,9,1038] IN[25,22,40,26,7,9,1038] MAXDEPTH(6)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIVWeb[$PARENTS] OUT[40]} GIVEN($PARENTS = {HPwIV[40:23505]})';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM UNION($CHILDREN) GIVEN($PARENTS = {HPwIV[40:23505]} $CHILDREN = {HPwIVWeb[$PARENTS] OUT[40]})';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40] AS P40,claims[569] AS P569) FROM {HPwIVWeb[23505] OUT[40] RANK(best) WHERE(HPwV[569:GTE +00000001980-01-01T00:00:00Z])}';
