@@ -2,8 +2,10 @@
 
 require_once( __DIR__ . '/../lib/autoload.php' );
 
+$q[] = '(id,labels["en"] AS label) FROM {HP[5] LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label) FROM {HIaPV[279] LIMIT(10)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims) FROM {items[62]}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569) FROM {HPwTV[569:+00000001981-09-16T00:00:00Z TO +00000001981-09-17T00:00:00Z]}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569) FROM {HPwTV[569:+00000001981-09-16T00:00:00Z TO +00000001981-09-17T00:00:00Z] LIMIT(20)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569,claims[40] AS P40) FROM {HPwTV[569:+00000001971-09-16T00:00:00Z TO +00000001981-09-17T00:00:00Z] ASC RANK(best) WHERE(HPwAnyV[40]) LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSomeV[20] QUALIFY(HPwAnyV[40])}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:2590631] LIMIT(5)}';
@@ -13,10 +15,9 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[40][rank=be
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[31] AS P31) FROM {items[23] WHERE(haslinks["enwiki"])}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[31] AS P31) FROM {items[1339,350,34,64,747,24242,636,3] WHERE(haslinks["enwiki"])}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {linkedto["enwiki#Universe"]}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,sitelinks["enwiki"] AS sitelink) FROM {HPwSomeV[175,275,757]}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSomeV[569,105] RANK(best) LIMIT(10)}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:1,2,3]}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:1,2,3] WHERE(HPwV[41:14] OR NOT (HPwV[321:1]))}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,sitelinks["enwiki"] AS sitelink) FROM {HPwSomeV[175]}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSomeV[569] RANK(best) LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:5] WHERE(HPwV[41:14] OR NOT (HPwV[321:1]))}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[1082][rank=best] AS P1082) FROM {HPwQV[1082:35000 TO 60000] ASC LIMIT(10)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:35000 TO 60000] DESC LIMIT(10) RANK(best)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:1,LTE 1000] DESC LIMIT(10) RANK(best)}';
@@ -28,9 +29,7 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P56
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569) FROM {HPwTV[569:+00000001969-08-09T00:00:00Z TO +00000001979-08-09T00:00:00Z,+00000001980-01-01T00:00:00Z TO +00000001990-12-30T00:00:00Z] DESC LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwCV[625:AROUND 38.897669444444 -77.03655 2] LIMIT(10)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwCV[625:AROUND 38.897669444444 -77.03655 2,AROUND -1.1 -2.2 3.3] RANK(best) LIMIT(5)}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:1,2,3] WHERE(HPwV[1:3.141596] OR HPwV[353:2525])}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:1,2,3] RANK(preferred) QUALIFY(HPwV[15141:222,252,353])}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:1,2,3] QUALIFY(HPwV[1414:89 TO 90,1] AND HPwV[1414:356,46]) WHERE(HPwV[14:3.0] OR (HPwV[24:2.5] AND HPwV[98:5.6]))}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:5] QUALIFY(HPwV[1414:89 TO 90,1] AND HPwV[1414:356,46]) WHERE(HPwV[14:3.0] OR (HPwV[24:2.5] AND HPwV[98:5.6]))}';
 $q[] = '(id,labels["en"] AS label) FROM INTERSECT($a,$b,$c) GIVEN($a = {items[1339,350,34,64,747,24242,636,3]} $b = {items[34,64,747,24242,636,3]} $c = {items[636,3]})';
 $q[] = '(id,labels["en"] AS label) FROM DIFFERENCE($a,$b,$c) GIVEN($a = {items[1339,350,34,64,747,24242,636,3]} $b = {items[34,64,747]} $c = {items[636,3]})';
 $q[] = '(id,labels["en"] AS label) FROM UNION($a,$b,$c) GIVEN($a = {items[1339,350]} $b = {items[34,64,747]} $c = {items[24242,636,3]})';

@@ -17,29 +17,35 @@ class WdqUtils {
 	 * Handle dates like -20001-01-01T00:00:00Z and +20001-01-01T00:00:00Z
 	 *
 	 * @param string $time
+	 * @param bool $strict Throw exceptions on error
 	 * @return string|bool 64-bit UNIX timestamp or false on failure
 	 */
-	public static function getUnixTimeFromISO8601( $time ) {
+	public static function getUnixTimeFromISO8601( $time, $strict = false ) {
+		$result = false;
+
 		$m = array();
 		$ok = preg_match( '#^(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z$#', $time, $m );
-		if ( !$ok ) {
-			trigger_error( "Got unparsable date '$time'." );
-			return false;
+		if ( $ok ) {
+			list( , $sign, $year, $month, $day, $hour, $minute, $second ) = $m;
+			$year = ( $sign === '-' ) ? -(int)$year : (int)$year;
+
+			$date = new DateTime();
+			try {
+				$date->setTimezone( new DateTimeZone( 'UTC' ) );
+				$date->setDate( $year, (int)$month, (int)$day );
+				$date->setTime( (int)$hour, (int)$minute, (int)$second );
+				$result = $date->format( 'U' );
+			} catch ( Exception $e ) {}
 		}
 
-		list( , $sign, $year, $month, $day, $hour, $minute, $second ) = $m;
-		$year = ( $sign === '-' ) ? -(int)$year : (int)$year;
-
-		$date = new DateTime();
-		try {
-			$date->setDate( $year, (int)$month, (int)$day );
-			$date->setTime( (int)$hour, (int)$minute, (int)$second );
-		} catch ( Exception $e ) {
+		if ( $result === false ) {
+			if ( $strict ) {
+				throw new Exception( "Unparsable timestamp: $time" );
+			}
 			trigger_error( "Got unparsable date '$time'." );
-			return false;
 		}
 
-		return $date->format( 'U' );
+		return $result;
 	}
 
 	/**
@@ -49,7 +55,7 @@ class WdqUtils {
 	 * @return string|bool Readable date
 	 */
 	public static function getISO8601FromUnixTime( $time ) {
-		$date = new DateTime( "@$time" );
+		$date = new DateTime( "@$time", new DateTimeZone( 'UTC' ) );
 		if ( !$date ) {
 			trigger_error( "Got unparsable date '$time'." );
 			return false;
@@ -101,31 +107,6 @@ class WdqUtils {
 	 * @return string
 	 */
 	public static function toJSON( $object ) {
-		$flags = JSON_UNESCAPED_SLASHES | JSON_HEX_QUOT | JSON_HEX_APOS;
-		return json_encode( self::mangleBacklashes( $object ), $flags );
-	}
-
-	/**
-	 * @param array|object $object
-	 * @return array|object
-	 */
-	protected static function mangleBacklashes( $object ) {
-		foreach ( $object as $key => &$value ) {
-			if ( is_string( $value ) ) {
-				$ovalue = $value;
-				// XXX: https://github.com/orientechnologies/orientdb/issues/2424
-				$value = rtrim( $value, '\\' );
-				// XXX: https://github.com/orientechnologies/orientdb/issues/2690
-				#$value = str_replace( array( '"', '\u' ), array( '”', 'u' ), $value );
-				$value = str_replace( '"', '”', $value );
-				if ( $value !== $ovalue ) {
-					print( "JSON: converted value '$ovalue' => '$value'.\n" );
-				}
-			} elseif ( is_object( $value ) || is_array( $value ) ) {
-				$value = self::mangleBacklashes( $value );
-			}
-		}
-		unset( $value );
-		return $object;
+		return json_encode( $object, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
 	}
 }

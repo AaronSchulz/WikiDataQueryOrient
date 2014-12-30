@@ -154,7 +154,7 @@ class WdqQueryParser {
 			$variable = self::consumeWord( $rest );
 			if ( preg_match( "/^" . self::VAR_RE . "$/", $variable ) ) {
 				if ( isset( $map[$variable] ) ) {
-					throw new ParseException( "Cannot mutate variable '$variable'." );
+					throw new ParseException( "Cannot mutate variable '$variable'" );
 				}
 				$token = self::consumeWord( $rest );
 				if ( $token !== '=' ) {
@@ -191,7 +191,7 @@ class WdqQueryParser {
 			$lets = array();
 			foreach ( preg_split( '/\s*,\s*/', $variables ) as $var ) {
 				if ( $var[0] !== '$' ) {
-					throw new Exception( "$operation expects variable arguments." );
+					throw new Exception( "$operation expects variable arguments" );
 				} elseif ( !isset( $givenMap[$var] ) ) {
 					throw new Exception( "$operation given undefined variable '$var'" );
 				}
@@ -220,6 +220,10 @@ class WdqQueryParser {
 	 * Parse things like
 	 * "HPwIV[X:A,B,C] QUALIFY(HPwQV[X:Y]) WHERE(~HPwIV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y]))"
 	 *
+	 * @note: results should be distinct items, but try to avoid
+	 * https://github.com/orientechnologies/orientdb/issues/2376
+	 * and https://github.com/orientechnologies/orientdb/issues/3244
+	 *
 	 * @param string $s
 	 * @param array $givenMap
 	 * @return string Orient SQL
@@ -232,54 +236,78 @@ class WdqQueryParser {
 		$qualiferPrefix = 'qlfrs';
 
 		$m = array();
+		$float = self::RE_FLOAT;
 		$dlist = '(?:\d+,?)+';
+		$ofields = self::OUT_ITEM_FIELDS; // out.* fields to get Item fields
 		$gvar = self::VAR_RE; // item IDs generators via GIVEN
-		// Get the primary select condition (using some index)
-		if ( preg_match( "/^HPwSomeV\[($dlist)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
-			$inRanges = self::parseRangeDive( 'iid', $m[1] );
-			$order = isset( $m[2] ) ? $m[2] : 'ASC';
-			$orderBy = "ORDER BY iid $order,oid $order";
-			$fields = self::OUT_ITEM_FIELDS;
-			$sql = "SELECT $fields FROM HPwSomeV WHERE $inRanges AND @ECOND@ GROUP BY out $orderBy";
-		} elseif ( preg_match( "/^HPwIV\[(\d+):($dlist)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
+
+		// Get the primary select condition (using some index)...
+		// @note: watch out for https://bugs.php.net/bug.php?id=51881
+		if ( preg_match( "/^HP\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
-			$inRanges = self::parseRangeDive( 'iid', $m[2], "pid=$pId" );
-			$order = isset( $m[3] ) ? $m[3] : 'ASC';
-			$orderBy = "ORDER BY iid $order,pid $order,oid $order";
-			$fields = self::OUT_ITEM_FIELDS;
-			$sql = "SELECT $fields FROM HIaPV WHERE $inRanges AND @ECOND@ GROUP BY out $orderBy";
-		} elseif ( preg_match( "/^HPwSV\[(\d+):((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
+			$cont = !empty( $m[2] ) ? "AND id > {$m[2]}" : "";
+			// @note: order is ASC, but using ORDER BY prevents index use for some reason
+			$sql = "SELECT FROM Item WHERE (pids contains $pId $cont) AND @ICOND@";
+			$qualiferPrefix = null; // makes no sense
+		} elseif ( preg_match( "/^HIaPV\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
+			$iId = $m[1];
+			$cont = !empty( $m[2] ) ? "AND id > {$m[2]}" : "";
+			// @note: order is ASC, but using ORDER BY prevents index use for some reason
+			$sql = "SELECT FROM Item WHERE (iids contains $iId $cont) AND @ICOND@";
+			$qualiferPrefix = null; // makes no sense
+		} elseif ( preg_match( "/^HPwSomeV\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
-			// Avoid IN[] per https://github.com/orientechnologies/orientdb/issues/3204
-			$or = array();
-			foreach ( explode( ',', $m[2] ) as $valId ) {
-				$or[] = "iid=$pId AND val=$valId";
-			}
-			$or = self::sqlOR( $or );
-			$fields = self::OUT_ITEM_FIELDS . ",val as *value";
-			$sql = "SELECT $fields FROM HPwSV WHERE ($or) AND @ECOND@ GROUP BY out";
-		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*/", $rest, $m ) ) {
+			$cont = !empty( $m[2] ) ? "AND oid > {$m[2]}" : "";
+			$orderBy = "ORDER BY iid ASC,oid ASC";
+			$sql = "SELECT $ofields FROM HPwSomeV WHERE iid=$pId $cont AND @ECOND@ GROUP BY out $orderBy";
+		} elseif ( preg_match( "/^HPwIV\[(\d+):(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
+			$pId = $m[1];
+			$iId = $m[2];
+			$cont = !empty( $m[3] ) ? "AND oid > {$m[3]}" : "";
+			$cond = "iid=$iId AND pid=$pId";
+			$orderBy = "ORDER BY iid ASC,pid ASC,oid ASC";
+			$sql = "SELECT $ofields FROM HIaPV WHERE $cond $cont AND @ECOND@ GROUP BY out $orderBy";
+		} elseif ( preg_match( "/^HPwSV\[(\d+):(\\$\d+)\]\s*/", $rest, $m ) ) {
+			$pId = $m[1];
+			$valId = $m[2];
+			$cond = "(iid=$pId AND val=$valId)"; // parenthesis needed for index usage
+			$sql = "SELECT $ofields,val as *value FROM HPwSV WHERE $cond AND @ECOND@ GROUP BY out";
+		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*(?:CONTINUE\(([^,()]+,\d+)\)\s*)?/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
 			if ( $class === 'HPwTV' ) {
 				$valField = '*time';
-				$inRanges = self::parsePeriodDive( 'val', $m[3], "iid=$pId" );
+				$cond = self::parsePeriodDive( 'val', $m[3], "iid=$pId" );
 			} else {
 				$valField = '*value';
-				$inRanges = self::parseRangeDive( 'val', $m[3], "iid=$pId" );
+				$cond = self::parseRangeDive( 'val', $m[3], "iid=$pId" );
 			}
-			$order = isset( $m[4] ) ? $m[4] : 'ASC';
+			$order = !empty( $m[4] ) ? $m[4] : 'ASC';
+			// CONTINUE has to page through (val,oid)
+			if ( !empty( $m[5] ) ) {
+				list( $cVal, $cOid ) = explode( ',', $m[5] );
+				if ( $class === 'HPwTV' ) {
+					$cVal = WdqUtils::getUnixTimeFromISO8601( $cVal, true );
+				} elseif ( !preg_match( "/^$float$/", $cVal ) ) {
+					throw new Exception( "Invalid continue value: {$m[5]}" );
+				}
+				$cont = ( $order === 'ASC' )
+					? "AND (val > $cVal OR (val = $cVal AND oid > $cOid))"
+					: "AND (val < $cVal OR (val = $cVal AND oid < $cOid))";
+			} else {
+				$cont = '';
+			}
 			// @note: could be several claims...use the closest one (good with rank=best)
 			// @note: with several claims, *value may change depending on ASC vs DESC
 			$orderBy = "ORDER BY iid $order,val $order,oid $order";
-			$fields = self::OUT_ITEM_FIELDS . ",val AS $valField";
-			$sql = "SELECT $fields FROM $class WHERE $inRanges AND @ECOND@ GROUP BY out $orderBy";
+			$fields = "$ofields,val AS $valField";
+			$sql = "SELECT $fields FROM $class WHERE $cond $cont AND @ECOND@ $orderBy GROUP BY out";
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
-			$around = self::parseAroundDive( $m[2] );
-			$fields = self::OUT_ITEM_FIELDS . ',$distance AS *distance';
+			$cond = self::parseAroundDive( $m[2] );
+			$fields = "$ofields,\$distance AS *distance";
 			// @note: could be several claims...use the closest one (good with rank=best)
-			$sql = "SELECT $fields FROM HPwCV WHERE $around AND iid=$pId AND @ECOND@ GROUP BY out";
+			$sql = "SELECT $fields FROM HPwCV WHERE $cond AND iid=$pId AND @ECOND@ GROUP BY out";
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
@@ -289,7 +317,7 @@ class WdqQueryParser {
 			$valIds = explode( ',', $m[1] );
 			$or = array();
 			foreach ( $valIds as $valId ) {
-				$or[] = "sitelinks CONTAINSVALUE $valId";
+				$or[] = "sitelinks containsvalue $valId";
 			}
 			$or = self::sqlOR( $or );
 			$sql = "SELECT FROM Item WHERE $or AND @ICOND@";
@@ -548,7 +576,7 @@ class WdqQueryParser {
 			$valIds = explode( ',', $m[1] );
 			$or = array();
 			foreach ( $valIds as $valId ) {
-				$or[] = "sitelinks CONTAINSKEY $valId";
+				$or[] = "sitelinks containskey $valId";
 			}
 			$where[] = '(' . implode( ' OR ', $or ) . ')';
 		} else {
@@ -620,24 +648,15 @@ class WdqQueryParser {
 			$v = trim( $v );
 			if ( preg_match( "/^([^\s]+)\s+TO\s+([^\s]+)$/", $v, $m ) ) {
 				list( , $at, $bt ) = $m;
-				$at = WdqUtils::getUnixTimeFromISO8601( $at );
-				$bt = WdqUtils::getUnixTimeFromISO8601( $bt );
-				if ( $at === false || $bt === false ) {
-					throw new ParseException( "Unparsable timestamps: $v" );
-				}
+				$at = WdqUtils::getUnixTimeFromISO8601( $at, true );
+				$bt = WdqUtils::getUnixTimeFromISO8601( $bt, true );
 				$where[] = "{$cond}{$field} BETWEEN $at AND $bt";
 			} elseif ( preg_match( "/^(GT|GTE|LT|LTE)\s+([^\s]+)$/", $v, $m ) ) {
 				$op = self::$compareOpMap[$m[1]];
-				$t = WdqUtils::getUnixTimeFromISO8601( $m[2] );
-				if ( $t === false ) {
-					throw new ParseException( "Unparsable timestamps: $v" );
-				}
+				$t = WdqUtils::getUnixTimeFromISO8601( $m[2], true );
 				$where[] = "{$cond}{$field} $op $t";
 			} else {
-				$t = WdqUtils::getUnixTimeFromISO8601( $v );
-				if ( $t === false ) {
-					throw new ParseException( "Unparsable timestamps: $v" );
-				}
+				$t = WdqUtils::getUnixTimeFromISO8601( $v, true );
 				$where[] = "{$cond}{$field}=$t";
 			}
 		}
