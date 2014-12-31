@@ -20,22 +20,19 @@ Importing scripts and query helper classes for storing WikiData information in O
 
 5) 	Set the root user and password (e.g. "root"/"root").
 
-6) 	Run the sql/schema.sql via the console (e.g. console.sh).
+6) 	Run the sql/schema.sql via the OrientDB console (e.g. console.sh).
 
-7)	Grab a JSON dump file from http://dumps.wikimedia.org/other/wikidata/
-    and store it somewhere (e.g. F:/importer/data).
+7)	Save JSON dump file from http://dumps.wikimedia.org/other/wikidata/
 
 *** Importing data ***
 
 1) Import vertexes:
-	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase vertexes --user root --password root --method=insert --posdir=F:/importer/pos
+	php importWikiDataDump.php --dump <dump path> --phase vertexes --user root --password root --method=insert --posdir=F:/importer/pos
 
 2) Import edges:
-	php importWikiDataDump.php --dump F:/importer/data/20141124.json --phase edges --user root --password root --method=bulk_init --posdir=F:/importer/pos
+	php importWikiDataDump.php --dump <dump path> --phase edges --user root --password root --method=bulk_init --posdir=F:/importer/pos
 
-*** Updating via API ***
-
-All of this is very unfinished and WIP :)
+*** Updating via the API ***
 
 1) Make sure at least all vertexes of a dump are finished being added
 
@@ -43,13 +40,13 @@ All of this is very unfinished and WIP :)
 
 *** Console ***
 
+1) Start the OrientDB console (e.g. console.sh).
+2) Run the first command for server level access, the later to connect to the DB
 connect remote:localhost root root
 connect remote:127.0.0.1/WikiData admin admin
+
+g = new OrientGraph("remote:127.0.0.1/WikiData");
 
 *** WDQ query tester ***
 
 php cli-api.php --user admin --password admin
-
-*** Gremlin ***
-
-g = new OrientGraph("remote:127.0.0.1/WikiData");

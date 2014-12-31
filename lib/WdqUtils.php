@@ -17,10 +17,10 @@ class WdqUtils {
 	 * Handle dates like -20001-01-01T00:00:00Z and +20001-01-01T00:00:00Z
 	 *
 	 * @param string $time
-	 * @param bool $strict Throw exceptions on error
+	 * @param string|null $strictExp Throw exceptions of this type on error
 	 * @return string|bool 64-bit UNIX timestamp or false on failure
 	 */
-	public static function getUnixTimeFromISO8601( $time, $strict = false ) {
+	public static function getUnixTimeFromISO8601( $time, $strictExp = null ) {
 		$result = false;
 
 		$m = array();
@@ -39,8 +39,8 @@ class WdqUtils {
 		}
 
 		if ( $result === false ) {
-			if ( $strict ) {
-				throw new Exception( "Unparsable timestamp: $time" );
+			if ( $strictExp !== null ) {
+				throw new $strictExp( "Unparsable timestamp: $time" );
 			}
 			trigger_error( "Got unparsable date '$time'." );
 		}
@@ -107,6 +107,6 @@ class WdqUtils {
 	 * @return string
 	 */
 	public static function toJSON( $object ) {
-		return json_encode( $object, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		return json_encode( $object, JSON_UNESCAPED_SLASHES );
 	}
 }

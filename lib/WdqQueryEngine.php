@@ -64,7 +64,7 @@ class WdqQueryEngine {
 				foreach ( $record as $key => $value ) {
 					if ( $key === '*depth' ) {
 						$obj[$key] = $value / 2; // only count vertex steps
-					} elseif ( $key === '*time' ) {
+					} elseif ( $key === '*timevalue' ) {
 						$obj['*value'] = WdqUtils::getISO8601FromUnixTime( $value );
 					} elseif ( $key[0] !== '@' ) {
 						$obj[$key] = $value;

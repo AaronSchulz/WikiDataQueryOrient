@@ -40,7 +40,7 @@ function main() {
 		}
 		try {
 			$sql = WdqQueryParser::parse( $query );
-		} catch ( ParseException $e ) {
+		} catch ( WdqParseException $e ) {
 			print( "Caught parser error: {$e->getMessage()}\n" );
 			continue;
 		}

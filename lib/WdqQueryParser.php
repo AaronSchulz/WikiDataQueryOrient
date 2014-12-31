@@ -68,14 +68,17 @@ class WdqQueryParser {
 		$rest = $s;
 
 		// Get the properties selecteed
+		if ( $rest == '' || $rest[0] !== '(' ) {
+			throw new WdqParseException( "Missing projections: $s" );
+		}
 		$props = self::consumePair( $rest, '()' );
 
 		// Get the FROM query
 		$token = self::consumeWord( $rest );
 		if ( $token !== 'FROM' ) {
-			throw new ParseException( "Expected FROM: $s" );
+			throw new WdqParseException( "Expected FROM: $s" );
 		} elseif ( $rest === '' ) {
-			throw new ParseException( "Missing FROM query '$s'" );
+			throw new WdqParseException( "Missing FROM query '$s'" );
 		} elseif ( $rest[0] === '{' ) {
 			$setQuery = '{' . self::consumePair( $rest, '{}' ) . '}';
 		} else {
@@ -95,13 +98,13 @@ class WdqQueryParser {
 		}
 
 		if ( strlen( $rest ) ) {
-			throw new ParseException( "Excess query statements found: $rest" );
+			throw new WdqParseException( "Excess query statements found: $rest" );
 		}
 
 		// Validate the properties selected.
 		// Enforce that [] fields use aliases (they otherwise get called out1, out2...)
 		// @note: propagate certain * fields from subqueries that could be useful
-		$proj = array( '*depth', '*distance', '*time', '*value' );
+		$proj = array( '*depth', '*distance', '*timevalue', '*value' );
 		foreach ( explode( ',', $props ) as $prop ) {
 			$prop = trim( $prop );
 			$m = array();
@@ -121,11 +124,11 @@ class WdqQueryParser {
 				} elseif ( isset( self::$rankMap[$m[2]] ) ) {
 					$field .= "[rank=" . self::$rankMap[$m[2]] . "]";
 				} else {
-					throw new ParseException( "Bad rank: '{$m[2]}'" );
+					throw new WdqParseException( "Bad rank: '{$m[2]}'" );
 				}
 				$proj[] = "$field AS {$m[3]}";
 			} else {
-				throw new ParseException( "Invalid field: $prop" );
+				throw new WdqParseException( "Invalid field: $prop" );
 			}
 		}
 		$proj = implode( ',', $proj );
@@ -133,7 +136,7 @@ class WdqQueryParser {
 		// Get the main query conditions
 		$query = self::consumeSetOp( $setQuery, $givenMap );
 		if ( strlen( $setQuery ) ) {
-			throw new ParseException( "Excess query statements found: $rest" );
+			throw new WdqParseException( "Excess query statements found: $rest" );
 		}
 
 		$sql = "SELECT $proj FROM $query LIMIT $limit TIMEOUT $timeout";
@@ -153,15 +156,15 @@ class WdqQueryParser {
 			$variable = self::consumeWord( $rest );
 			if ( preg_match( "/^" . self::RE_VAR . "$/", $variable ) ) {
 				if ( isset( $map[$variable] ) ) {
-					throw new ParseException( "Cannot mutate variable '$variable'" );
+					throw new WdqParseException( "Cannot mutate variable '$variable'" );
 				}
 				$token = self::consumeWord( $rest );
 				if ( $token !== '=' ) {
-					throw new ParseException( "Expected =: $rest" );
+					throw new WdqParseException( "Expected =: $rest" );
 				}
 				$map[$variable] = self::consumeSetOp( $rest, $map, '' );
 			} else {
-				throw new ParseException( "Bad variable: $variable" );
+				throw new WdqParseException( "Bad variable: $variable" );
 			}
 		}
 
@@ -190,15 +193,15 @@ class WdqQueryParser {
 			$lets = array();
 			foreach ( preg_split( '/\s*,\s*/', $variables ) as $var ) {
 				if ( $var[0] !== '$' ) {
-					throw new Exception( "$operation expects variable arguments" );
+					throw new WdqParseException( "$operation expects variable arguments" );
 				} elseif ( !isset( $givenMap[$var] ) ) {
-					throw new Exception( "$operation given undefined variable '$var'" );
+					throw new WdqParseException( "$operation given undefined variable '$var'" );
 				}
 				$lets["\$t{$i}"] = "\$t{$i} = {$givenMap[$var]}";
 				++$i;
 			}
 			if ( !$lets ) {
-				throw new ParseException( "$operation missing arguments: $rest" );
+				throw new WdqParseException( "$operation missing arguments: $rest" );
 			}
 			$args = implode( ',', array_keys( $lets ) );
 
@@ -212,7 +215,7 @@ class WdqQueryParser {
 			return "(SELECT expand( \$tf ) LET " . implode( ', ', $lets ) . ')';
 		}
 
-		throw new ParseException( "Unparsable set: $orig" );
+		throw new WdqParseException( "Unparsable set: $orig" );
 	}
 
 	/**
@@ -245,14 +248,14 @@ class WdqQueryParser {
 		if ( preg_match( "/^HP\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
 			$cont = !empty( $m[2] ) ? "AND id > {$m[2]}" : "";
-			// @note: order is ASC, but using ORDER BY prevents index use for some reason
-			$sql = "SELECT FROM Item WHERE (pids contains $pId $cont) AND @ICOND@";
+			$orderBy = "ORDER BY pids ASC,id ASC";
+			$sql = "SELECT FROM Item WHERE (pids contains $pId $cont) AND @ICOND@ $orderBy";
 			$qualiferPrefix = null; // makes no sense
 		} elseif ( preg_match( "/^HIaPV\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$iId = $m[1];
 			$cont = !empty( $m[2] ) ? "AND id > {$m[2]}" : "";
-			// @note: order is ASC, but using ORDER BY prevents index use for some reason
-			$sql = "SELECT FROM Item WHERE (iids contains $iId $cont) AND @ICOND@";
+			$orderBy = "ORDER BY iids ASC,id ASC";
+			$sql = "SELECT FROM Item WHERE (iids contains $iId $cont) AND @ICOND@ $orderBy";
 			$qualiferPrefix = null; // makes no sense
 		} elseif ( preg_match( "/^HPwSomeV\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
@@ -275,7 +278,7 @@ class WdqQueryParser {
 			$class = $m[1];
 			$pId = $m[2];
 			if ( $class === 'HPwTV' ) {
-				$valField = '*time';
+				$valField = '*timevalue';
 				$cond = self::parsePeriodDive( 'val', $m[3], "iid=$pId" );
 			} else {
 				$valField = '*value';
@@ -286,9 +289,9 @@ class WdqQueryParser {
 			if ( !empty( $m[5] ) ) {
 				list( $cVal, $cOid ) = explode( ',', $m[5] );
 				if ( $class === 'HPwTV' ) {
-					$cVal = WdqUtils::getUnixTimeFromISO8601( $cVal, true );
+					$cVal = WdqUtils::getUnixTimeFromISO8601( $cVal, 'WdqParseException' );
 				} elseif ( !preg_match( "/^$float$/", $cVal ) ) {
-					throw new Exception( "Invalid continue value: {$m[5]}" );
+					throw new WdqParseException( "Invalid continue value: {$m[5]}" );
 				}
 				$cont = ( $order === 'ASC' )
 					? "AND (val > $cVal OR (val = $cVal AND oid > $cOid))"
@@ -330,7 +333,7 @@ class WdqQueryParser {
 			} else {
 				$variable = $m[1];
 				if ( !isset( $givenMap[$variable] ) ) {
-					throw new ParseException( "No '$variable' entry in GIVEN clause: $s" );
+					throw new WdqParseException( "No '$variable' entry in GIVEN clause: $s" );
 				}
 				$from = $givenMap[$variable];
 			}
@@ -372,7 +375,7 @@ class WdqQueryParser {
 				$sql = "$from AND @ICOND@";
 			}
 		} else {
-			throw new ParseException( "Invalid index query: $s" );
+			throw new WdqParseException( "Invalid index query: $s" );
 		}
 
 		// Skip past the stuff handled above
@@ -393,16 +396,16 @@ class WdqQueryParser {
 				if ( $rank === 'best' ) {
 					$rankCond = "best=1";
 				} elseif ( $rank === 'deprecated' ) { // performance
-					throw new ParseException( "rank=deprecated filter is not supported" );
+					throw new WdqParseException( "rank=deprecated filter is not supported" );
 				} elseif ( isset( self::$rankMap[$rank] ) ) {
 					$rankCond = "rank=" . self::$rankMap[$rank];
 				} else {
-					throw new ParseException( "Bad rank: '$rank'" );
+					throw new WdqParseException( "Bad rank: '$rank'" );
 				}
 			// Check if there is a QUALIFY condition
 			} elseif ( $token === 'QUALIFY' ) {
 				if ( $qualiferPrefix === null ) {
-					throw new ParseException( "Index query does not support qualifiers: $s" );
+					throw new WdqParseException( "Index query does not support qualifiers: $s" );
 				}
 				$statement = self::consumePair( $rest, '()' );
 				$qualifyCond = '(' . self::parseFilters( $statement, $qualiferPrefix ) . ')';
@@ -415,7 +418,7 @@ class WdqQueryParser {
 			} elseif ( $token === 'LIMIT' ) {
 				$limit = (int)self::consumePair( $rest, '()' );
 			} else {
-				throw new ParseException( "Unexpected token: $token" );
+				throw new WdqParseException( "Unexpected token: $token" );
 			}
 		}
 
@@ -445,7 +448,7 @@ class WdqQueryParser {
 		$sql = str_replace( '@ETCOND@', $edgeCondTraverse, $sql );
 
 		if ( strlen( $rest ) ) {
-			throw new ParseException( "Excess set statements: $rest" );
+			throw new WdqParseException( "Excess set statements: $rest" );
 		}
 
 		return $sql;
@@ -477,7 +480,7 @@ class WdqQueryParser {
 			} elseif ( preg_match( '/^(AND|OR)\s/', $rest, $m ) ) {
 				if ( $junction && $m[1] !== $junction ) {
 					// "(A AND B OR C)" is confusing and requires precendence order
-					throw new ParseException( "Unparsable: $s" );
+					throw new WdqParseException( "Unparsable: $s" );
 				}
 				$junction = $m[1];
 				$rest = substr( $rest, strlen( $m[0] ) );
@@ -490,9 +493,9 @@ class WdqQueryParser {
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Unparsable: $s" );
+			throw new WdqParseException( "Unparsable: $s" );
 		} elseif ( strlen( $rest ) ) {
-			throw new ParseException( "Excess filter statements found: $rest" );
+			throw new WdqParseException( "Excess filter statements found: $rest" );
 		}
 
 		return $junction ? implode( " $junction ", $where ) : $where[0];
@@ -564,13 +567,13 @@ class WdqQueryParser {
 				} elseif ( preg_match( "/^\$\d+$/", $val ) ) {
 					$or[] = "{$claimPrefix}['$pId'] contains (datavalue = '$val')";
 				} else {
-					throw new ParseException( "Invalid quantity or range: $val" );
+					throw new WdqParseException( "Invalid quantity or range: $val" );
 				}
 			}
 			$where[] = '(' . implode( ' OR ', $or ) . ')';
 		} elseif ( preg_match( "/^haslinks\[((?:\\$\d+,?)+)\]\$/", $s, $m ) ) {
 			if ( preg_match( '/(^|\.)qlfrs$/', $claimPrefix ) ) {
-				throw new ParseException( "Invalid qualifier condition: $s" );
+				throw new WdqParseException( "Invalid qualifier condition: $s" );
 			}
 			$valIds = explode( ',', $m[1] );
 			$or = array();
@@ -579,11 +582,11 @@ class WdqQueryParser {
 			}
 			$where[] = '(' . implode( ' OR ', $or ) . ')';
 		} else {
-			throw new ParseException( "Invalid filter or qualifier condition: $s" );
+			throw new WdqParseException( "Invalid filter or qualifier condition: $s" );
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Bad filter or qualifier condition: $s" );
+			throw new WdqParseException( "Bad filter or qualifier condition: $s" );
 		}
 
 		return implode( ' AND ', $where );
@@ -616,12 +619,12 @@ class WdqQueryParser {
 				$op = self::$compareOpMap[$m[1]];
 				$where[] = "{$cond}{$field} $op {$m[2]}";
 			} else {
-				throw new ParseException( "Unparsable: $v" );
+				throw new WdqParseException( "Unparsable: $v" );
 			}
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Unparsable range: $s" );
+			throw new WdqParseException( "Unparsable range: $s" );
 		}
 
 		return '(' . implode( ') OR (', $where ) . ')';
@@ -647,21 +650,21 @@ class WdqQueryParser {
 			$v = trim( $v );
 			if ( preg_match( "/^([^\s]+)\s+TO\s+([^\s]+)$/", $v, $m ) ) {
 				list( , $at, $bt ) = $m;
-				$at = WdqUtils::getUnixTimeFromISO8601( $at, true );
-				$bt = WdqUtils::getUnixTimeFromISO8601( $bt, true );
+				$at = WdqUtils::getUnixTimeFromISO8601( $at, 'WdqParseException' );
+				$bt = WdqUtils::getUnixTimeFromISO8601( $bt, 'WdqParseException' );
 				$where[] = "{$cond}{$field} BETWEEN $at AND $bt";
 			} elseif ( preg_match( "/^(GT|GTE|LT|LTE)\s+([^\s]+)$/", $v, $m ) ) {
 				$op = self::$compareOpMap[$m[1]];
-				$t = WdqUtils::getUnixTimeFromISO8601( $m[2], true );
+				$t = WdqUtils::getUnixTimeFromISO8601( $m[2], 'WdqParseException' );
 				$where[] = "{$cond}{$field} $op $t";
 			} else {
-				$t = WdqUtils::getUnixTimeFromISO8601( $v, true );
+				$t = WdqUtils::getUnixTimeFromISO8601( $v, 'WdqParseException' );
 				$where[] = "{$cond}{$field}=$t";
 			}
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Unparsable period: $s" );
+			throw new WdqParseException( "Unparsable period: $s" );
 		}
 
 		return '(' . implode( ') OR (', $where ) . ')';
@@ -686,12 +689,12 @@ class WdqQueryParser {
 				list( , $lat, $lon, $dist ) = $m;
 				$where[] = "([lat,lon,\$spatial] NEAR [$lat,$lon,{\"maxDistance\":$dist}])";
 			} else {
-				throw new ParseException( "Unparsable: $v" );
+				throw new WdqParseException( "Unparsable: $v" );
 			}
 		}
 
 		if ( !$where ) {
-			throw new ParseException( "Unparsable area: $s" );
+			throw new WdqParseException( "Unparsable area: $s" );
 		}
 
 		return count( $where ) > 1 ? '(' . implode( ' OR ', $where ) . ')' : $where[0];
@@ -730,7 +733,7 @@ class WdqQueryParser {
 		$s = ltrim( $s );
 		$token = substr( $s, 0, strcspn( $s, " \t\n\r({[" ) );
 		if ( !strlen( $token ) ) {
-			throw new ParseException( "Expected token: $orig" );
+			throw new WdqParseException( "Expected token: $orig" );
 		}
 		$s = ltrim( substr( $s, strlen( $token ) ) );
 		return $token;
@@ -749,7 +752,7 @@ class WdqQueryParser {
 		list ( $open, $close ) = $pair;
 
 		if ( $s[0] !== $open ) {
-			throw new ParseException( "Expected $pair pair: $orig" );
+			throw new WdqParseException( "Expected $pair pair: $orig" );
 		}
 
 		$depth = 1;
@@ -767,7 +770,7 @@ class WdqQueryParser {
 		}
 
 		if ( $depth !== 0 ) {
-			throw new ParseException( "Unparsable: $orig" );
+			throw new WdqParseException( "Unparsable: $orig" );
 		}
 
 		$s = substr( $s, $i + 1 ); // consume the matching section and brackets
@@ -811,5 +814,3 @@ class WdqQueryParser {
 		return str_replace( array_keys( $map ), array_values( $map ), $s );
 	}
 }
-
-class ParseException extends Exception {}
