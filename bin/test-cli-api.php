@@ -1,5 +1,9 @@
 <?php
 
+if ( PHP_SAPI !== 'cli' ) {
+	die( "This script can only be run in CLI mode\n" );
+}
+
 require_once( __DIR__ . '/../lib/autoload.php' );
 
 $q[] = '(id,labels["en"] AS label) FROM {HP[5] LIMIT(10)}';
@@ -22,7 +26,6 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[1082][rank=
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:35000 TO 60000] DESC LIMIT(10) RANK(best)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:1,LTE 1000] DESC LIMIT(10) RANK(best)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:1,GTE 1000000] DESC LIMIT(10) RANK(best)}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[856:"www.whitehouse.gov","www.fafsa.edu"]}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[856:"http://www.whitehouse.gov/"]}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[311:"O\'reilly Pub\""] WHERE(NOT (HPwV[31:1,2,3]))}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569) FROM {HPwTV[569:+00000001949-01-01T00:00:00Z TO +00000001959-12-30T00:00:00Z] ASC LIMIT(10)}';

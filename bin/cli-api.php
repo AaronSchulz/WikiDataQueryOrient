@@ -1,5 +1,9 @@
 <?php
 
+if ( PHP_SAPI !== 'cli' ) {
+	die( "This script can only be run in CLI mode\n" );
+}
+
 require_once( __DIR__ . '/../lib/autoload.php' );
 
 function main() {

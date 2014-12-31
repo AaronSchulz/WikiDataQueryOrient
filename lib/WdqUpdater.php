@@ -316,14 +316,49 @@ class WdqUpdater {
 	public function makeEntityEdges( array $entities, $method, array $classes = null ) {
 		$queries = array();
 
+		$curEdgeSids = array(); // map of (class:sid => #RID)
+		if ( $method !== 'bulk_init' ) {
+			$ids = array(); // Item IDs
+			foreach ( $entities as $entity ) {
+				$ids[] = WdqUtils::wdcToLong( $entity['id'] );
+			}
+			$this->updateItemRIDCache( $ids );
+			$itemRIDs = array_map( array( $this->iCache, 'get' ), $ids );
+
+			$from = '[' . implode( ',', $itemRIDs ) . ']';
+			$res = $this->tryQuery(
+				"select sid,@class,@RID from " .
+				"(select expand(outE()) from $from)", 1e9 );
+			foreach ( $res as $record ) {
+				$key = $record['class'] . ':' . $record['sid'];
+				if ( isset( $curEdgeSids[$key] ) ) {
+					// Delete any redundant edges
+					$queries[] = "delete edge {$record['RID']}";
+				} else {
+					$curEdgeSids[$key] = $record['RID'];
+				}
+			}
+		}
+
+		$newEdgeSids = array(); // map of (class:sid => 1)
 		foreach ( $entities as $entity ) {
 			if ( $entity['type'] === 'item' ) {
-				$queries = array_merge( $queries,
-					$this->importItemEdgesSQL( $entity, $method ) );
-			} elseif ( $entity['type'] === 'property' ) {
-				// nothing to do
-			} else {
-				trigger_error( "Unrecognized entity of type '{$entity['type']}'." );
+				$queries = array_merge(
+					$queries,
+					$this->importItemEdgesSQL( $entity, $curEdgeSids, $newEdgeSids, $classes )
+				);
+			}
+		}
+
+		if ( $method !== 'bulk_init' ) {
+			// Destroy any prior outgoing edges with obsolete SIDs...
+			$deleteSids = array_diff_key( $curEdgeSids, $newEdgeSids );
+			foreach ( $deleteSids as $rid ) {
+				$sql = "delete edge $rid";
+				if ( $classes ) {
+					$sql .= ' where @class in [' . implode( ',', $classes ) . ']';
+				}
+				$queries[] = $sql;
 			}
 		}
 
@@ -335,11 +370,14 @@ class WdqUpdater {
 	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
 	 *
 	 * @param array $item
-	 * @param string $method (rebuild/bulk)
+	 * @param array $curEdgeSids Map of (class:sid => #RID) for all sids of at least $item
+	 * @param array $newEdgeSids Empty array
 	 * @param array|null $classes Only do certain edge classes
 	 * @return array
 	 */
-	public function importItemEdgesSQL( array $item, $method, array $classes = null ) {
+	public function importItemEdgesSQL(
+		array $item, array $curEdgeSids, array &$newEdgeSids, array $classes = null
+	) {
 		if ( !isset( $item['claims'] ) ) {
 			return array(); // nothing to do
 		} elseif ( $classes !== null && !count( $classes ) ) {
@@ -359,7 +397,6 @@ class WdqUpdater {
 			}
 		}
 
-		$newEdgeSids = array(); // map of (class:sid => 1)
 		$dvEdges = array(); // list of data value statements (maps with class/val/rank)
 		foreach ( $item['claims'] as $propertyId => $statements ) {
 			$pId = WdqUtils::wdcToLong( $propertyId );
@@ -403,38 +440,6 @@ class WdqUpdater {
 
 		$queries = array();
 
-		// Delete obsolete outgoing edges...
-		$existingEdgeSids = array(); // map of (class:sid => #RID)
-		if ( $method !== 'bulk_init' ) {
-			// Get the prior edges SIDs/#RIDs...
-			if ( $this->iCache->has( $qId ) ) {
-				$from = $this->iCache->get( $qId );
-			} else {
-				$from = "Item where id=$qId";
-			}
-			$res = $this->tryQuery(
-				"select sid,@class,@RID from (select expand(outE()) from $from)", 1e9 );
-			foreach ( $res as $record ) {
-				$key = $record['class'] . ':' . $record['sid'];
-				if ( isset( $existingEdgeSids[$key] ) ) {
-					// Delete any redundant edges
-					$queries[] = "delete edge {$record['RID']}";
-				} else {
-					$existingEdgeSids[$key] = $record['RID'];
-				}
-			}
-
-			// Destroy any prior outgoing edges with obsolete SIDs...
-			$deleteSids = array_diff_key( $existingEdgeSids, $newEdgeSids );
-			foreach ( $deleteSids as $rid ) {
-				$sql = "delete edge $rid";
-				if ( $classes ) {
-					$sql .= ' where @class in [' . implode( ',', $classes ) . ']';
-				}
-				$queries[] = $sql;
-			}
-		}
-
 		// Create/update all of the new outgoing edges...
 		foreach ( $dvEdges as $dvEdge ) {
 			if ( $classes && !in_array( $dvEdge['class'], $classes ) ) {
@@ -446,9 +451,9 @@ class WdqUpdater {
 			unset( $dvEdge['toClass'] );
 
 			$key = $class . ":" . $dvEdge['sid'];
-			if ( isset( $existingEdgeSids[$key] ) ) {
+			if ( isset( $curEdgeSids[$key] ) ) {
 				// If an edge was found with the SID, then update it...
-				$rid = $existingEdgeSids[$key];
+				$rid = $curEdgeSids[$key];
 				$set = $this->sqlSet( $dvEdge );
 				$queries[] = "update $rid set $set";
 			} else {
@@ -696,7 +701,9 @@ class WdqUpdater {
 			'headers' => array( 'Authorization' => "Basic " . $hash )
 		) );
 		$m = array();
-		if ( preg_match( '/(?:^|;)OSESSIONID=([^;]+);/', $rhdrs['set-cookie'], $m ) ) {
+		if ( isset( $rhdrs['set-cookie'] ) &&
+			preg_match( '/(?:^|;)OSESSIONID=([^;]+);/', $rhdrs['set-cookie'], $m )
+		) {
 			$this->sessionId = $m[1];
 		} else {
 			throw new Exception( "Invalid authorization credentials ($rcode).\n" );
@@ -715,11 +722,6 @@ class WdqUpdater {
 			if ( is_float( $value ) || is_int( $value ) ) {
 				$set[] = "$key=$value";
 			} elseif ( is_scalar( $value ) ) {
-				// https://github.com/orientechnologies/orientdb/issues/2424
-				$value = rtrim( $value, '\\' );
-				$value = str_replace( "\n", " ", $value );
-				// XXX: https://github.com/orientechnologies/orientdb/issues/2690
-				$value = str_replace( '\u', 'u', $value );
 				$set[] = "$key='" . addcslashes( $value, "'\\" ) . "'";
 			} elseif ( $value === null ) {
 				$set[] = "$key=NULL";

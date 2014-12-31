@@ -11,7 +11,7 @@
  *	claims[X] AS PX,
  *	claims[Y] AS PY
  * )
- * FROM {HPwIV[X:$SOMEITEMS]}
+ * FROM {HPwIVWeb[$SOMEITEMS] OUT[40] MAXDEPTH(3)}
  * GIVEN (
  *		$SOME_ITEMS = {HPwIVWeb[X] OUT[X,Y]}
  *		$OTHER_ITEMS = {HPwIVWeb[$SOME_ITEMS] IN[X,Y]}
@@ -20,9 +20,9 @@
  *		$BOTH_AB = UNION($ITEMS_A,$ITEMS_B)
  *		$DIFF_AB = DIFFERENCE($ITEMS_A,$ITEMS_B)
  *		$INTERSECT_AB = INTERSECT($ITEMS_A,$ITEMS_B)
- *		$SET_A = {HPwTV[X:A] ASC RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y]) LIMIT(100)}
+ *		$SET_A = {HPwTV[X:D1 to D2] ASC RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y]) LIMIT(100)}
  *		$SET_B = {HPwCV[X:AROUND A B C,AROUND A B C] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
- *		$SET_C = {HPwSV[X:"cat","says","meow"] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
+ *		$SET_C = {HPwSV[X:"cat"] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
  *		$STUFF = {items[2,425,62,23]}
  *		$WLINK = {HPwIV[X:A] WHERE(link[X,Y])}
  * )
@@ -31,8 +31,7 @@ class WdqQueryParser {
 	const RE_FLOAT = '[-+]?[0-9]*\.?[0-9]+';
 	const RE_UFLOAT = '\+?[0-9]*\.?[0-9]+';
 	const RE_DATE = '(-|\+)0*(\d+)-(\d\d)-(\d\d)T0*(\d\d):0*(\d\d):0*(\d\d)Z';
-
-	const VAR_RE = '\$[a-zA-Z_]+';
+	const RE_VAR = '\$[a-zA-Z_]+';
 
 	const FLD_BASIC = '/^(id|sitelinks|labels|claims)$/';
 	const FLD_MAP = '/^((?:sitelinks|labels)\[\$?\d+\])\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
@@ -152,7 +151,7 @@ class WdqQueryParser {
 		$rest = $s;
 		while ( strlen( $rest ) ) {
 			$variable = self::consumeWord( $rest );
-			if ( preg_match( "/^" . self::VAR_RE . "$/", $variable ) ) {
+			if ( preg_match( "/^" . self::RE_VAR . "$/", $variable ) ) {
 				if ( isset( $map[$variable] ) ) {
 					throw new ParseException( "Cannot mutate variable '$variable'" );
 				}
@@ -239,7 +238,7 @@ class WdqQueryParser {
 		$float = self::RE_FLOAT;
 		$dlist = '(?:\d+,?)+';
 		$ofields = self::OUT_ITEM_FIELDS; // out.* fields to get Item fields
-		$gvar = self::VAR_RE; // item IDs generators via GIVEN
+		$gvar = self::RE_VAR; // item IDs generators via GIVEN
 
 		// Get the primary select condition (using some index)...
 		// @note: watch out for https://bugs.php.net/bug.php?id=51881

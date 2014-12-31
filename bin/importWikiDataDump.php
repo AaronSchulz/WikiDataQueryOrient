@@ -1,5 +1,9 @@
 <?php
 
+if ( PHP_SAPI !== 'cli' ) {
+	die( "This script can only be run in CLI mode\n" );
+}
+
 require_once( __DIR__ . '/../lib/autoload.php' );
 
 error_reporting( E_ALL );
@@ -147,9 +151,7 @@ function main() {
 		}
 	# Pass 2: establish all edges between vertexes
 	} elseif ( $phase === 'edges' ) {
-		print( "Building Property RID cache..." );
 		$updater->buildPropertyRIDCache();
-		print( "done\n" );
 		$batch = array();
 		$batchSize = 100;
 		iterateJsonDump( $dump, $modParams, $posFile,
@@ -161,9 +163,7 @@ function main() {
 				$qId = WdqUtils::wdcToLong( $entity['id'] );
 				if ( $qId % 500 == 1 ) {
 					$qIdStop = $qId + 499;
-					print( "Populating Item RID cache ($qId-$qIdStop)..." );
 					$updater->mergeItemRIDCache( $qId, $qIdStop );
-					print( "done\n" );
 				}
 				// Restarting might redo the first batch; preserve idempotence
 				$safeMethod = ( $count <= $batchSize ) ? 'rebuild' : $method;
