@@ -83,9 +83,9 @@ Queries are of the form:
 * {HP[%PROPERTYID%]} [CONTINUE=%ITEMID%] [WHERE(%FILTERQUERY%)]
 * {HIaPV[%ITEMID%]} [CONTINUE=%ITEMID%] [WHERE(%FILTERQUERY%)]
 * {HPwSomeV[%PROPERTYID%:%ITEMID%]} [CONTINUE=%ITEMID%] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwIVWeb[%PROPERTYID%:%ITEMID%]} [IN[%list of property IDs%]] [OUT[%list of property IDs%] [MAXDEPTH(%integer%) [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {items[%LIST OF ITEMIDS%]} [WHERE(%FILTERQUERY%)]
-* {linkedto[%LIST OF SITELINKS%]} [WHERE(%FILTERQUERY%)]
+* {HPwIVWeb[%PROPERTYID%:%list of ITEMID or a single variable%]} [IN[%list of property IDs%]] [OUT[%list of property IDs%] [MAXDEPTH(%integer%) [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {items[%LIST OF ITEMID%]} [WHERE(%FILTERQUERY%)]
+* {linkedto[%LIST OF SITELINK%]} [WHERE(%FILTERQUERY%)]
 The above all support an optional "LIMIT(%MAXRECORDS%)" at the end.
 
 * RANK is used to filter claims by their assigned rank.
