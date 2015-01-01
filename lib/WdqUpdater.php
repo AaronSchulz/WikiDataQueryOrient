@@ -127,8 +127,6 @@ class WdqUpdater {
 		if ( isset( $item['claims'] ) ) {
 			// Include simplified claims for easy filtering/selecting
 			$coreItem['claims'] = (object)$this->getSimpliedClaims( $item['claims'] );
-			// Include the property IDs (pids) referenced for tracking
-			$coreItem += $this->getReferenceIdSet( $item['claims'] );
 		}
 
 		if ( $update === 'insert' ) {
@@ -238,34 +236,6 @@ class WdqUpdater {
 		}
 
 		return $simpeQlfrs;
-	}
-
-	/**
-	 * Get IDs of items and properties refered to by $claims
-	 *
-	 * @param array $claims
-	 * @return array
-	 */
-	protected function getReferenceIdSet( array $claims ) {
-		$refs = array( 'pids' => array(), 'iids' => array() );
-
-		foreach ( $claims as $propertyId => $statements ) {
-			$pId = WdqUtils::wdcToLong( $propertyId );
-			$refs['pids'][] = $pId;
-			foreach ( $statements as $statement ) {
-				$mainSnak = $statement['mainsnak'];
-				if ( $mainSnak['snaktype'] === 'value' &&
-					$mainSnak['datavalue']['type'] === 'wikibase-entityid'
-				) {
-					$refs['iids'][] = (int)$mainSnak['datavalue']['value']['numeric-id'];
-				}
-			}
-		}
-
-		// Embedded sets do not allow duplicates
-		$refs['iids'] = array_values( array_unique( $refs['iids'] ) );
-
-		return $refs;
 	}
 
 	/**

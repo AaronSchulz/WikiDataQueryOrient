@@ -75,14 +75,18 @@ Queries are of the form:
 * UNION[%list of variables%]
 * INTERSECT[%list of variables%]
 * DIFFERENCE[%list of variables%]
+* {HIaPV[%ITEMID%} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwSomeV[%PROPERTYID%]} [CONTINUE=%ITEMID%] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwIV[%PROPERTYID%} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwSV[%PROPERTYID%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwTV[%PROPERTYID%]} [CONTINUE(%date%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwQV[%PROPERTYID%]} [CONTINUE(%double%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwCV[%PROPERTYID%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwIV[%PROPERTYID%:%ITEMID%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwSV[%PROPERTYID%:%quoted string%]} [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwTV[%PROPERTYID%:%list of dates/date ranges%]} [CONTINUE(%date%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwQV[%PROPERTYID%:%list of doubles/double ranges%]} [CONTINUE(%double%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwCV[%PROPERTYID%:list of AROUND %lat% %lon% %km range%]}  [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HP[%PROPERTYID%]} [CONTINUE=%ITEMID%] [WHERE(%FILTERQUERY%)]
-* {HIaPV[%ITEMID%]} [CONTINUE=%ITEMID%] [WHERE(%FILTERQUERY%)]
-* {HPwSomeV[%PROPERTYID%:%ITEMID%]} [CONTINUE=%ITEMID%] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwCV[%PROPERTYID%:list of AROUND %lat% %lon% %km range%]} [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwIVWeb[%PROPERTYID%:%list of ITEMID or a single variable%]} [IN[%list of property IDs%]] [OUT[%list of property IDs%] [MAXDEPTH(%integer%) [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {items[%LIST OF ITEMID%]} [WHERE(%FILTERQUERY%)]
 * {linkedto[%LIST OF SITELINK%]} [WHERE(%FILTERQUERY%)]
@@ -110,7 +114,6 @@ CONTINUE is used for paging through results.
 
 Quick query definition:
 * UNION/INTERSECT/DIFFERENCE: mean what they say, and can take multiple arguments (which must be variables from the GIVEN statement)
-* HP: "Has the given property"
 * HPwIV: "Has the given property with this item value"
 * HIaPV: "Has this item as value for some property"
 * HPwSV: "Has the given property with this string value"

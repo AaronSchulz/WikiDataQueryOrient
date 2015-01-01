@@ -6,8 +6,12 @@ if ( PHP_SAPI !== 'cli' ) {
 
 require_once( __DIR__ . '/../lib/autoload.php' );
 
-$q[] = '(id,labels["en"] AS label) FROM {HP[5] LIMIT(10)}';
-$q[] = '(id,labels["en"] AS label) FROM {HIaPV[279] LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label) FROM {HPwTV[569] LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label) FROM {HPwQV[1082] LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label) FROM {HPwCV[625] LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label) FROM {HPwSV[856] LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label) FROM {HPwIV[31] LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label) FROM {HIaPV[5] LIMIT(10)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims) FROM {items[62]}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569) FROM {HPwTV[569:+00000001981-09-16T00:00:00Z TO +00000001981-09-17T00:00:00Z] LIMIT(20)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569,claims[40] AS P40) FROM {HPwTV[569:+00000001971-09-16T00:00:00Z TO +00000001981-09-17T00:00:00Z] ASC RANK(best) WHERE(HPwAnyV[40]) LIMIT(5)}';
@@ -25,7 +29,7 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:5]
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[1082][rank=best] AS P1082) FROM {HPwQV[1082:35000 TO 60000] ASC LIMIT(10)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:35000 TO 60000] DESC LIMIT(10) RANK(best)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:LTE 1000] DESC RANK(best) LIMIT(10)}';
-$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:GTE 1000000] DESC RANK(best) LIMIT(10)}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwQV[1082:GTE 1000000] DESC RANK(best) WHERE(HPwV[31:515]) LIMIT(10)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[856:"http://www.whitehouse.gov/"]}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSV[311:"O\'reilly Pub\""] WHERE(NOT (HPwV[31:1,2,3]))}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569) FROM {HPwTV[569:+00000001949-01-01T00:00:00Z TO +00000001959-12-30T00:00:00Z] ASC LIMIT(10)}';

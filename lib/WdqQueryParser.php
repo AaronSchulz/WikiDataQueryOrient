@@ -104,7 +104,7 @@ class WdqQueryParser {
 		// Validate the properties selected.
 		// Enforce that [] fields use aliases (they otherwise get called out1, out2...)
 		// @note: propagate certain * fields from subqueries that could be useful
-		$proj = array( '*depth', '*distance', '*timevalue', '*value' );
+		$proj = array( '*depth', '*distance', '*timevalue', '*value', '*pid' );
 		foreach ( explode( ',', $props ) as $prop ) {
 			$prop = trim( $prop );
 			$m = array();
@@ -245,35 +245,26 @@ class WdqQueryParser {
 
 		// Get the primary select condition (using some index)...
 		// @note: watch out for https://bugs.php.net/bug.php?id=51881
-		if ( preg_match( "/^HP\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
-			$pId = $m[1];
-			$cont = !empty( $m[2] ) ? "AND id > {$m[2]}" : "";
-			$orderBy = "ORDER BY pids ASC,id ASC";
-			$sql = "SELECT FROM Item WHERE (pids contains $pId $cont) AND @ICOND@ $orderBy";
-			$qualiferPrefix = null; // makes no sense
-		} elseif ( preg_match( "/^HIaPV\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
-			$iId = $m[1];
-			$cont = !empty( $m[2] ) ? "AND id > {$m[2]}" : "";
-			$orderBy = "ORDER BY iids ASC,id ASC";
-			$sql = "SELECT FROM Item WHERE (iids contains $iId $cont) AND @ICOND@ $orderBy";
-			$qualiferPrefix = null; // makes no sense
-		} elseif ( preg_match( "/^HPwSomeV\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
-			$pId = $m[1];
-			$cont = !empty( $m[2] ) ? "AND oid > {$m[2]}" : "";
+		// Case A: queries to list items that use a property or item
+		if ( preg_match( "/^(HPwSomeV|HIaPV|HPwIV|HPwSV|HPwQV|HPwTV|HPwCV)\[(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
+			$class = $m[1];
+			$id = $m[2]; // property ID or item ID
+			$cont = !empty( $m[3] ) ? "AND oid > {$m[3]}" : "";
 			$orderBy = "ORDER BY iid ASC,oid ASC";
-			$sql = "SELECT $ofields FROM HPwSomeV WHERE iid=$pId $cont AND @ECOND@ GROUP BY out $orderBy";
+			$sql = "SELECT $ofields FROM $class WHERE iid=$id $cont AND @ECOND@ GROUP BY oid $orderBy";
+		// Case B: queries that list items with certain values for a property
 		} elseif ( preg_match( "/^HPwIV\[(\d+):(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
 			$iId = $m[2];
 			$cont = !empty( $m[3] ) ? "AND oid > {$m[3]}" : "";
-			$cond = "iid=$iId AND pid=$pId";
-			$orderBy = "ORDER BY iid ASC,pid ASC,oid ASC";
-			$sql = "SELECT $ofields FROM HIaPV WHERE $cond $cont AND @ECOND@ GROUP BY out $orderBy";
+			$cond = "(iid=$iId AND pid=$pId)";
+			$orderBy = "ORDER BY iid ASC,pid ASC,oid ASC"; // parenthesis needed for index usage
+			$sql = "SELECT $ofields FROM HIaPV WHERE $cond $cont AND @ECOND@ GROUP BY oid $orderBy";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):(\\$\d+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			$valId = $m[2];
 			$cond = "(iid=$pId AND val=$valId)"; // parenthesis needed for index usage
-			$sql = "SELECT $ofields,val as *value FROM HPwSV WHERE $cond AND @ECOND@ GROUP BY out";
+			$sql = "SELECT $ofields,val as *value FROM HPwSV WHERE $cond AND @ECOND@ GROUP BY oid";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*(?:CONTINUE\(([^,()]+,\d+)\)\s*)?/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
@@ -303,13 +294,14 @@ class WdqQueryParser {
 			// @note: with several claims, *value may change depending on ASC vs DESC
 			$orderBy = "ORDER BY iid $order,val $order,oid $order";
 			$fields = "$ofields,val AS $valField";
-			$sql = "SELECT $fields FROM $class WHERE $cond $cont AND @ECOND@ $orderBy GROUP BY out";
+			$sql = "SELECT $fields FROM $class WHERE $cond $cont AND @ECOND@ GROUP BY oid $orderBy";
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*/", $rest, $m ) ) {
 			$pId = $m[1];
 			$cond = self::parseAroundDive( $m[2] );
 			$fields = "$ofields,\$distance AS *distance";
 			// @note: could be several claims...use the closest one (good with rank=best)
-			$sql = "SELECT $fields FROM HPwCV WHERE $cond AND iid=$pId AND @ECOND@ GROUP BY out";
+			$sql = "SELECT $fields FROM HPwCV WHERE $cond AND iid=$pId AND @ECOND@ GROUP BY oid";
+		// Case C: queries that fetch items by ID or sitelinks
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {
 			$iIds = explode( ',', $m[1] );
 			$inClause = self::sqlIN( 'id', $iIds );
@@ -324,6 +316,7 @@ class WdqQueryParser {
 			$or = self::sqlOR( $or );
 			$sql = "SELECT FROM Item WHERE $or AND @ICOND@";
 			$qualiferPrefix = null; // makes no sense
+		// Case D: recursive item queries
 		} elseif ( preg_match(
 			"/^HPwIVWeb\[($dlist|$gvar)\](?:\s+OUT\[($dlist)\])?(?:\s+IN\[($dlist)\])?(?:\s+MAXDEPTH\((\d+)\))?\s*/", $rest, $m )
 		) {

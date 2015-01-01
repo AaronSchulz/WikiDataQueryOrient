@@ -15,9 +15,6 @@ create property Item.labels EMBEDDEDMAP string;
 create property Item.sitelinks EMBEDDEDMAP string;
 -- Store simplified claims as map of <property> => ((type,value,qlfrs),...)
 create property Item.claims EMBEDDEDMAP embedded;
--- Store the IDs of properties and items referenced
-create property Item.pids EMBEDDEDSET long; -- properties referenced
-create property Item.iids EMBEDDEDSET long; -- items referenced
 -- Flag things as deleted when deleted/moved
 create property Item.deleted boolean;
 -- Enforce basic field presence
@@ -25,15 +22,10 @@ alter property Item.id MANDATORY true;
 alter property Item.labels MANDATORY true;
 alter property Item.sitelinks MANDATORY true;
 alter property Item.claims MANDATORY true;
-alter property Item.pids MANDATORY true;
-alter property Item.iids MANDATORY true;
 -- Q codes are unique
 create index ItemIdIdx on Item (id) unique;
 -- Support looking up items by site links
 create index ItemSiteLinksIdx on Item (sitelinks by value) notunique_hash_index;
--- Support query/item usage queries (includes broken references)
-create index ItemPidsIdx on Item (pids,id) notunique;
-create index ItemIidsIdx on Item (iids,id) notunique;
 
 -- Property pages (P entity)
 create class Property extends V;
@@ -105,6 +97,7 @@ alter property HPwQV.oid MANDATORY true;
 alter property HPwQV.iid MANDATORY true;
 alter property HPwQV.sid MANDATORY true;
 create index HPwQVIidValIdx on HPwQV (iid, val, oid) notunique;
+create index HPwQVIidIdx on HPwQV (iid, oid) notunique;
 
 -- "Item X has timestamp value Z for Property Y" relationships
 create class HPwTV extends E;
@@ -125,6 +118,7 @@ alter property HPwTV.oid MANDATORY true;
 alter property HPwTV.iid MANDATORY true;
 alter property HPwTV.sid MANDATORY true;
 create index HPwTVIidValIdx on HPwTV (iid, val, oid) notunique;
+create index HPwTVIidIdx on HPwTV (iid, oid) notunique;
 
 -- "Item X has string value Z for Property Y" relationships
 create class HPwSV extends E;
@@ -145,6 +139,7 @@ alter property HPwSV.oid MANDATORY true;
 alter property HPwSV.iid MANDATORY true;
 alter property HPwSV.sid MANDATORY true;
 create index HPwSVIidValIdx on HPwSV (iid, val) notunique_hash_index;
+create index HPwSVIidIdx on HPwSV (iid, oid) notunique;
 
 -- "Item X has coordinate value Z for Property Y" relationships
 create class HPwCV extends E;
@@ -167,6 +162,7 @@ alter property HPwCV.oid MANDATORY true;
 alter property HPwCV.iid MANDATORY true;
 alter property HPwCV.sid MANDATORY true;
 create index HPwCVLocGeoIdx on HPwCV (lat, lon) spatial engine LUCENE;
+create index HPwCVIidIdx on HPwCV (iid, oid) notunique;
 
 -- "Item X has an Item value Z for Property Y" relationships
 create class HPwIV extends E;
@@ -186,6 +182,7 @@ alter property HPwIV.qlfrs MANDATORY true;
 alter property HPwIV.oid MANDATORY true;
 alter property HPwIV.iid MANDATORY true;
 alter property HPwIV.sid MANDATORY true;
+create index HPwIVIidIdx on HPwIV (iid, oid) notunique;
 
 -- "Item X uses Item Z as value of Property Y" relationships
 create class HIaPV extends E;
@@ -206,6 +203,7 @@ alter property HIaPV.oid MANDATORY true;
 alter property HIaPV.iid MANDATORY true;
 alter property HIaPV.sid MANDATORY true;
 create index HIaPVIidPidIdx on HIaPV (iid, pid, oid) notunique;
+create index HIaPVIidIdx on HIaPV (iid, oid) notunique;
 
 -- Metadata table for tracking DB status info (e.g. for feed updates)
 create class DBStatus;
