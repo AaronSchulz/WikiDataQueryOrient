@@ -41,6 +41,7 @@ Importing scripts and query helper classes for storing WikiData information in O
 *** Console ***
 
 1) Start the OrientDB console (e.g. console.sh).
+
 2) Run the first command for server level access, the later to connect to the DB
 connect remote:localhost root root
 connect remote:127.0.0.1/WikiData admin admin
@@ -50,3 +51,93 @@ g = new OrientGraph("remote:127.0.0.1/WikiData");
 *** WDQ query tester ***
 
 php cli-api.php --user admin --password admin
+
+Queries are of the form:
+(%PROJECTION%>,[%PROJECTION%,]*) FROM %QUERY% [GIVEN( <var>=<%QUERY%> )]
+
+* %PROJECTION% is of the form %FIELD% or %FIELD% AS %ALIAS%
+* A %FIELD% can be id, claims, sitelinks, or labels
+* The [] operator can be used on fields to get sub-fields like "sitelinks['en']"; an alias is required for this
+* An %ALIAS% should be alphanumeric characters (starting with a non-number)
+* A variable is an alphanumeric word (starting with a non-number) that a prefixed with "$", e.g. "$SOME_VAR"
+
+%QUERY% can be one of the following, which generate sets of Items:
+* UNION[%list of variables%]
+* INTERSECT[%list of variables%]
+* DIFFERENCE[%list of variables%]
+* {HPwIV[%PROPERTYID%:%ITEMID%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwSV[%PROPERTYID%:%quoted string%]} [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwTV[%PROPERTYID%:%list of dates/date ranges%]} [CONTINUE(%date%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwQV[%PROPERTYID%:%list of doubles/double ranges%]} [CONTINUE(%double%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwCV[%PROPERTYID%:list of AROUND %lat% %lon% %km range%]}  [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HP[%PROPERTYID%]} [CONTINUE=%ITEMID%] [WHERE(%FILTERQUERY%)]
+* {HIaPV[%ITEMID%]} [CONTINUE=%ITEMID%] [WHERE(%FILTERQUERY%)]
+* {HPwSomeV[%PROPERTYID%:%ITEMID%]} [CONTINUE=%ITEMID%] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwIVWeb[%PROPERTYID%:%ITEMID%]} [IN[%list of property IDs%]] [OUT[%list of property IDs%] [MAXDEPTH(%integer%) [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {items[%LIST OF ITEMIDS%]} [WHERE(%FILTERQUERY%)]
+* {linkedto[%LIST OF SITELINKS%]} [WHERE(%FILTERQUERY%)]
+The above all support an optional "LIMIT(%MAXRECORDS%)" at the end.
+
+RANK is used to filter claims by their assigned rank.
+QUALIFY puts conditions on claim qualifiers and WHERE puts them on the item claims.
+
+%FILTERQUERY% supports AND/OR/NOT and can use:
+* HPwV[%PROPERTYID%,%value or value range%]
+* HPwNoV[%list of %PROPERTYID%]
+* HPwSomeV[%list of %PROPERTYID%]
+* HPwAnyV[%list of %PROPERTYID%]
+* haslinks[%list of sitelinks%]
+
+Note: lists always use commas as separators.
+Note: ranges can be specified like:
+* X TO Y
+* GT X
+* GTE X
+* LT X
+* LTE X
+Timestamps should appear like +2001-01-01T00:00:00Z (use a minus sign for BCE dates)
+
+CONTINUE is used for paging through results.
+
+Quick query definition:
+* UNION/INTERSECT/DIFFERENCE: mean what they say, and can take multiple arguments (which must be variables from the GIVEN statement)
+* HP: "Has the given property"
+* HPwIV: "Has the given property with this item value"
+* HIaPV: "Has this item as value for some property"
+* HPwSV: "Has the given property with this string value"
+* HPwTV: "Has the given property with these time values or in these time ranges"
+* HPwQV: "Has the given property with these double values or in these double ranges"
+* HPwCV: "Has the given property with coordinates around these coordinates"
+* HPwSomeV: "Has the given property with some known unkown value"
+* HPwNoV: "Known not have the given property"
+* HPwAnyV: "Has the given property with any of these values or in these ranges"
+* haslinks: "Has sitelinks in any of these languages"
+* linkedto: "Is linked to any of these sitelinks"
+* items: "Get items with these IDs"
+* HPwIVWeb: "Follow claims of specified properties to other items recursively using a starting item list"
+
+Site links are of the form "<site>#<title>".
+
+Example of query syntax:
+ (
+	id,
+	sitelinks['en'] AS sitelink,
+	labels['en'] AS label,
+	claims[X] AS PX,
+	claims[Y] AS PY
+ )
+ FROM {HPwIVWeb[$SOMEITEMS] OUT[40] MAXDEPTH(3)}
+ GIVEN (
+	$SOME_ITEMS = {HPwIVWeb[X] OUT[X,Y]}
+	$OTHER_ITEMS = {HPwIVWeb[$SOME_ITEMS] IN[X,Y]}
+	$ITEMS_A = {HPwQV[X:A] DESC RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
+	$ITEMS_B = {HPwQV[Y:B TO C, GTE D]}
+	$BOTH_AB = UNION($ITEMS_A,$ITEMS_B)
+	$DIFF_AB = DIFFERENCE($ITEMS_A,$ITEMS_B)
+	$INTERSECT_AB = INTERSECT($ITEMS_A,$ITEMS_B)
+	$SET_A = {HPwTV[X:D1 to D2] ASC RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y]) LIMIT(100)}
+	$SET_B = {HPwCV[X:AROUND A B C,AROUND A B C] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
+	$SET_C = {HPwSV[X:"cat"] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
+	$STUFF = {items[2,425,62,23]}
+	$WLINK = {HPwIV[X:A] WHERE(link[X,Y])}
+ )
