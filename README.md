@@ -3,7 +3,8 @@ WikiDataQueryOrient
 
 Importing scripts and query helper classes for storing WikiData information in OrientDB
 
-*** DB schema and server setup ***
+DB schema and server setup
+--------------
 
 1)	Get and compile OrientDB 2.0 SNAPSHOT (https://github.com/orientechnologies/orientdb).
 	Use the 'develop' branch.
@@ -24,7 +25,8 @@ Importing scripts and query helper classes for storing WikiData information in O
 
 7)	Save JSON dump file from http://dumps.wikimedia.org/other/wikidata/
 
-*** Importing data ***
+Importing data
+--------------
 
 1) Import vertexes:
 	php importWikiDataDump.php --dump <dump path> --phase vertexes --user root --password root --method=insert --posdir=F:/importer/pos
@@ -32,13 +34,15 @@ Importing scripts and query helper classes for storing WikiData information in O
 2) Import edges:
 	php importWikiDataDump.php --dump <dump path> --phase edges --user root --password root --method=bulk_init --posdir=F:/importer/pos
 
-*** Updating via the API ***
+Updating via the API
+--------------
 
 1) Make sure at least all vertexes of a dump are finished being added
 
 2) php updateWdqGraphViaFeed.php --user root --password root
 
-*** Console ***
+Console
+--------------
 
 1) Start the OrientDB console (e.g. console.sh).
 
@@ -48,9 +52,15 @@ connect remote:127.0.0.1/WikiData admin admin
 
 g = new OrientGraph("remote:127.0.0.1/WikiData");
 
-*** WDQ query tester ***
+WDQ query tester
+--------------
 
 php cli-api.php --user admin --password admin
+
+You can then issue commands in the query language (see below).
+
+Query language
+--------------
 
 Queries are of the form:
 (%PROJECTION%>,[%PROJECTION%,]*) FROM %QUERY% [GIVEN( <var>=<%QUERY%> )]
@@ -78,8 +88,8 @@ Queries are of the form:
 * {linkedto[%LIST OF SITELINKS%]} [WHERE(%FILTERQUERY%)]
 The above all support an optional "LIMIT(%MAXRECORDS%)" at the end.
 
-RANK is used to filter claims by their assigned rank.
-QUALIFY puts conditions on claim qualifiers and WHERE puts them on the item claims.
+* RANK is used to filter claims by their assigned rank.
+* QUALIFY puts conditions on claim qualifiers and WHERE puts them on the item claims.
 
 %FILTERQUERY% supports AND/OR/NOT and can use:
 * HPwV[%PROPERTYID%,%value or value range%]
@@ -88,8 +98,7 @@ QUALIFY puts conditions on claim qualifiers and WHERE puts them on the item clai
 * HPwAnyV[%list of %PROPERTYID%]
 * haslinks[%list of sitelinks%]
 
-Note: lists always use commas as separators.
-Note: ranges can be specified like:
+Note: lists always use commas as separators. Ranges can be specified like:
 * X TO Y
 * GT X
 * GTE X
@@ -119,6 +128,7 @@ Quick query definition:
 Site links are of the form "<site>#<title>".
 
 Example of query syntax:
+
  (
 	id,
 	sitelinks['en'] AS sitelink,
