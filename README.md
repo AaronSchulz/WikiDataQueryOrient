@@ -63,7 +63,7 @@ Query language
 --------------
 
 Queries are of the form:
-(%PROJECTION%>,[%PROJECTION%,]*) FROM %QUERY% [GIVEN( <var>=<%QUERY%> )]
+(%PROJECTION%>,[%PROJECTION%,]*) FROM %QUERY% [GIVEN( %variable%=%QUERY% )]
 
 * %PROJECTION% is of the form %FIELD% or %FIELD% AS %ALIAS%
 * A %FIELD% can be id, claims, sitelinks, or labels
@@ -79,14 +79,14 @@ Queries are of the form:
 * {HPwSomeV[%PROPERTYID%]} [CONTINUE=%ITEMID%] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwIV[%PROPERTYID%} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwSV[%PROPERTYID%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwTV[%PROPERTYID%]} [CONTINUE(%date%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwQV[%PROPERTYID%]} [CONTINUE(%double%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwTV[%PROPERTYID%]} [CONTINUE(%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwQV[%PROPERTYID%]} [CONTINUE(%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwCV[%PROPERTYID%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwIV[%PROPERTYID%:%ITEMID%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwSV[%PROPERTYID%:%quoted string%]} [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwTV[%PROPERTYID%:%list of dates/date ranges%]} [CONTINUE(%date%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwQV[%PROPERTYID%:%list of doubles/double ranges%]} [CONTINUE(%double%,%ITEMID%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
-* {HPwCV[%PROPERTYID%:list of AROUND %lat% %lon% %km range%]} [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwSV[%PROPERTYID%:%quoted string%]} [CONTINUE(%ITEMID%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwTV[%PROPERTYID%:%list of dates/date ranges%]} [SKIP(%integer%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwQV[%PROPERTYID%:%list of doubles/double ranges%]} [SKIP(%integer%)] [ASC|DESC] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
+* {HPwCV[%PROPERTYID%:list of AROUND %lat% %lon% %km range%]} [SKIP(%integer%)] [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {HPwIVWeb[%PROPERTYID%:%list of ITEMID or a single variable%]} [IN[%list of property IDs%]] [OUT[%list of property IDs%] [MAXDEPTH(%integer%) [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {items[%LIST OF ITEMID%]} [WHERE(%FILTERQUERY%)]
 * {linkedto[%LIST OF SITELINK%]} [WHERE(%FILTERQUERY%)]
