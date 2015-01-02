@@ -509,7 +509,7 @@ class WdqQueryParser {
 		// @note: in OrientDB, if field b is an array, then a.b.c=5 scans all
 		// the items in b to see if any has c=5. This applies to qualifiers.PX
 		// and searches on other properties than the one the index was used for.
-		if ( preg_match( "/^(HPwNoV|HPwSomeV|HPwAnyV)\[($dlist)\]$/", $s, $m ) ) {
+		if ( preg_match( "/^(HPwNoV|HPwSomeV|HPwAnyV)\[($dlist)(?:;rank=([a-z]+))?\]$/", $s, $m ) ) {
 			$class = $m[1];
 			if ( $class === 'HPwNoV' ) {
 				$stype = "['novalue']";
@@ -518,9 +518,23 @@ class WdqQueryParser {
 			} else {
 				$stype = "['value','somevalue']";
 			}
+			$rank = !empty( $m[3] ) ? $m[3] : null;
+			$rankFilter = '';
+			if ( $rank === 'best' ) {
+				$rankFilter = "[best=1]";
+			} elseif ( $rank === 'deprecated' ) { // performance
+				throw new WdqParseException( "rank=deprecated filter is not supported" );
+			} elseif ( isset( self::$rankMap[$rank] ) ) {
+				$rankFilter = "[rank=" . self::$rankMap[$rank] . ']';
+			} elseif ( $rank === null ) {
+				// TODO: inequalities here need OrientDB 2.1
+				#$rankFilter = "[rank >= 0]"; // default
+			} else {
+				throw new WdqParseException( "Bad rank: '$rank'" );
+			}
 			$or = array();
 			foreach ( explode( ',', $m[2] ) as $pId ) {
-				$or[] = "{$claimPrefix}['$pId'] contains (snaktype in $stype)";
+				$or[] = "{$claimPrefix}[$pId]$rankFilter contains (snaktype in $stype)";
 			}
 			$where[] = '(' . implode( ' OR ', $or ) . ')';
 		} elseif ( preg_match( "/^HPwV\[(\d+):([^];]+)(?:;rank=([a-z]+))?\]$/", $s, $m ) ) {
