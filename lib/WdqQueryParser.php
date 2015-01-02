@@ -20,7 +20,7 @@
  *		$BOTH_AB = UNION($ITEMS_A,$ITEMS_B)
  *		$DIFF_AB = DIFFERENCE($ITEMS_A,$ITEMS_B)
  *		$INTERSECT_AB = INTERSECT($ITEMS_A,$ITEMS_B)
- *		$SET_A = {HPwTV[X:D1 to D2] ASC RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y]) LIMIT(100)}
+ *		$SET_A = {HPwTV[X:D1 to D2] ASC RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y;rank=best]) LIMIT(100)}
  *		$SET_B = {HPwCV[X:AROUND A B C,AROUND A B C] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
  *		$SET_C = {HPwSV[X:"cat"] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
  *		$STUFF = {items[2,425,62,23]}
@@ -493,10 +493,6 @@ class WdqQueryParser {
 	 * See https://github.com/orientechnologies/orientdb/wiki/SQL-Where
 	 * Lack of full "NOT" operator support means we have to be careful.
 	 *
-	 * @TODO: add "rank" filter support to "claim" WHERE with Orient 2.1.
-	 * See https://github.com/orientechnologies/orientdb/issues/513 for
-	 * better field condition piping support.
-	 *
 	 * @param string $s
 	 * @param string $claimPrefix
 	 * @return string Orient SQL
@@ -527,31 +523,45 @@ class WdqQueryParser {
 				$or[] = "{$claimPrefix}['$pId'] contains (snaktype in $stype)";
 			}
 			$where[] = '(' . implode( ' OR ', $or ) . ')';
-		} elseif ( preg_match( "/^HPwV\[(\d+):([^]]+)\]$/", $s, $m ) ) {
+		} elseif ( preg_match( "/^HPwV\[(\d+):([^];]+)(?:;rank=([a-z]+))?\]$/", $s, $m ) ) {
 			$pId = $m[1];
+			$rank = !empty( $m[3] ) ? $m[3] : null;
+			$field = "{$claimPrefix}[$pId]";
+			if ( $rank === 'best' ) {
+				$field .= "[best=1]";
+			} elseif ( $rank === 'deprecated' ) { // performance
+				throw new WdqParseException( "rank=deprecated filter is not supported" );
+			} elseif ( isset( self::$rankMap[$rank] ) ) {
+				$field .= "[rank=" . self::$rankMap[$rank] . ']';
+			} elseif ( $rank === null ) {
+				// TODO: inequalities here need OrientDB 2.1
+				#$field .= "[rank >= 0]"; // default
+			} else {
+				throw new WdqParseException( "Bad rank: '$rank'" );
+			}
 			$or = array();
 			foreach ( explode( ',', $m[2] ) as $val ) {
 				// Floats: trivial range support
 				if ( preg_match( "/^($float)\s+TO\s+($float)$/", $val, $m ) ) {
-					$or[] = "{$claimPrefix}['$pId'] contains (datavalue between {$m[1]} and {$m[2]})";
+					$or[] = "{$field} contains (datavalue between {$m[1]} and {$m[2]})";
 				} elseif ( preg_match( "/^(GT|GTE|LT|LTE)\s+($float)$/", $val, $m ) ) {
 					$op = self::$compareOpMap[$m[1]];
-					$or[] = "{$claimPrefix}['$pId'] contains (datavalue $op {$m[2]})";
+					$or[] = "{$field} contains (datavalue $op {$m[2]})";
 				} elseif ( preg_match( "/^$float$/", $val ) ) {
-					$or[] = "{$claimPrefix}['$pId'] contains (datavalue = $val)";
+					$or[] = "{$field} contains (datavalue = $val)";
 				// Dates: formatted like -20001-01-01T00:00:00Z and +20001-01-01T00:00:00Z
 				// can be compared lexographically for simplicity due to padding
 				} elseif ( preg_match( "/^($date)\s+TO\s+($date)/", $val, $m ) ) {
 					list( , $a, $b ) = $m;
-					$or[] = "{$claimPrefix}['$pId'] contains (datavalue between '$a' and '$b')";
+					$or[] = "{$field} contains (datavalue between '$a' and '$b')";
 				} elseif ( preg_match( "/^(GT|GTE|LT|LTE)\s+($date)$/", $val, $m ) ) {
 					$op = self::$compareOpMap[$m[1]];
-					$or[] = "{$claimPrefix}['$pId'] contains (datavalue $op '{$m[2]}')";
+					$or[] = "{$field} contains (datavalue $op '{$m[2]}')";
 				} elseif ( preg_match( "/^$date$/", $val ) ) {
-					$or[] = "{$claimPrefix}['$pId'] contains (datavalue = '$val')";
+					$or[] = "{$field} contains (datavalue = '$val')";
 				// Strings: exact match only
 				} elseif ( preg_match( "/^\$\d+$/", $val ) ) {
-					$or[] = "{$claimPrefix}['$pId'] contains (datavalue = '$val')";
+					$or[] = "{$field} contains (datavalue = '$val')";
 				} else {
 					throw new WdqParseException( "Invalid quantity or range: $val" );
 				}
