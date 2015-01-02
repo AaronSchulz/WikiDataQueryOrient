@@ -96,10 +96,10 @@ The above all support an optional "LIMIT(%MAXRECORDS%)" at the end.
 * QUALIFY puts conditions on claim qualifiers and WHERE puts them on the item claims.
 
 %FILTERQUERY% supports AND/OR/NOT and can use:
-* HPwV[%PROPERTYID%,%value or value range%]
-* HPwNoV[%list of %PROPERTYID%]
-* HPwSomeV[%list of %PROPERTYID%]
-* HPwAnyV[%list of %PROPERTYID%]
+* HPwV[%PROPERTYID%,%value or value range%[;rank=(best|preferred|normal)]]
+* HPwNoV[%list of %PROPERTYID%[;rank=(best|preferred|normal)]]
+* HPwSomeV[%list of %PROPERTYID%[;rank=(best|preferred|normal)]]
+* HPwAnyV[%list of %PROPERTYID%[;rank=(best|preferred|normal)]]
 * haslinks[%list of sitelinks%]
 
 Note: lists always use commas as separators. Ranges can be specified like:
