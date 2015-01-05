@@ -64,13 +64,14 @@ Query language
 
 Queries are of the form:
 (%PROJECTION%>,[%PROJECTION%,]*) FROM %QUERY% [GIVEN( %variable%=%QUERY% )]
-
+```
 * %PROJECTION% is of the form %FIELD% or %FIELD% AS %ALIAS%
 * A %FIELD% can be id, claims, sitelinks, or labels
 * The [] operator can be used on fields to get sub-fields like "sitelinks['en']"; an alias is required for this
 * An %ALIAS% should be alphanumeric characters (starting with a non-number)
 * A variable is an alphanumeric word (starting with a non-number) that a prefixed with "$", e.g. "$SOME_VAR"
-
+```
+```
 %QUERY% can be one of the following, which generate sets of Items:
 * UNION[%list of variables%]
 * INTERSECT[%list of variables%]
@@ -91,17 +92,17 @@ Queries are of the form:
 * {items[%LIST OF ITEMID%]} [WHERE(%FILTERQUERY%)]
 * {linkedto[%LIST OF SITELINK%]} [WHERE(%FILTERQUERY%)]
 The above all support an optional "LIMIT(%MAXRECORDS%)" at the end.
-
+```
 * RANK is used to filter claims by their assigned rank.
 * QUALIFY puts conditions on claim qualifiers and WHERE puts them on the item claims.
-
+```
 %FILTERQUERY% supports AND/OR/NOT and can use:
 * HPwV[%PROPERTYID%,%value or value range%[;rank=(best|preferred|normal)]]
 * HPwNoV[%list of %PROPERTYID%[;rank=(best|preferred|normal)]]
 * HPwSomeV[%list of %PROPERTYID%[;rank=(best|preferred|normal)]]
 * HPwAnyV[%list of %PROPERTYID%[;rank=(best|preferred|normal)]]
 * haslinks[%list of sitelinks%]
-
+```
 Note: lists always use commas as separators. Ranges can be specified like:
 * X TO Y
 * GT X
@@ -131,7 +132,7 @@ Quick query definition:
 Site links are of the form "<site>#<title>".
 
 Example of query syntax:
-
+```sql
  (
 	id,
 	sitelinks['en'] AS sitelink,
@@ -154,3 +155,4 @@ Example of query syntax:
 	$STUFF = {items[2,425,62,23]}
 	$WLINK = {HPwIV[X:A] WHERE(link[X,Y])}
  )
+```
