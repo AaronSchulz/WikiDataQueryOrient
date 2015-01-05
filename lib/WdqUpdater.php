@@ -48,7 +48,7 @@ class WdqUpdater {
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel/Primer
 	 *
 	 * @param array $entities
-	 * @param string $method (update/insert/upsert)
+	 * @param string $method (insert/upsert)
 	 * @throws Exception
 	 */
 	public function importEntities( array $entities, $method ) {

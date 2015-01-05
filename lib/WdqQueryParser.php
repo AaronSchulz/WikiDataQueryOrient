@@ -280,7 +280,7 @@ class WdqQueryParser {
 			$order = !empty( $m[4] ) ? $m[4] : 'ASC';
 			$skip = !empty( $m[5] ) ? "SKIP {$m[5]}" : "";
 			// @note: relies on DB picking "from first scanned" values for non-oid fields
-			$fields = "$ofields,val AS $valField,oid";
+			$fields = "$ofields,val AS $valField";
 			// @note: could be several claims...use the first (in order); good with rank=best
 			// @note: with several claims, *value may change depending on ASC vs DESC
 			$orderBy = "ORDER BY iid $order,val $order,oid $order";

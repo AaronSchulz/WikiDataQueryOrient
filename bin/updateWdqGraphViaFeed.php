@@ -53,7 +53,7 @@ function main() {
 	$baseQuery = array(
 		'action' => 'query', 'list' => 'recentchanges',
 		'rcnamespace' => '0|120', 'rctype' => 'log|edit|new',
-		'rcdir' => 'newer', 'rclimit' => 15, 'rcprop' => 'loginfo|ids|title|timestamp',
+		'rcdir' => 'newer', 'rclimit' => 20, 'rcprop' => 'loginfo|ids|title|timestamp',
 		'format' => 'json', 'continue' => '', 'rcstart' => $sTimestamp
 	);
 
@@ -76,7 +76,7 @@ function main() {
 		$itemsRestored = array(); // list of Item IDs
 		$propertiesDeleted = array(); // list of Property IDs
 		$propertiesRestored = array(); // list of Property IDs
-		$titlesChanged = array(); // rev ID => (ns,title)
+		$newRevIDs = array(); // list rev IDs
 		foreach ( $result['query']['recentchanges'] as $change ) {
 			$lastTimestamp = $change['timestamp'];
 			$logTypeAction = ( $change['type'] === 'log' )
@@ -84,10 +84,10 @@ function main() {
 				: null;
 			if ( $change['type'] === 'new' ) {
 				print( "{$change['timestamp']} New page: {$change['title']}\n" );
-				$titlesChanged[$change['revid']] = array( $change['ns'], $change['title'] );
+				$newRevIDs[] = $change['revid'];
 			} elseif ( $change['type'] === 'edit' ) {
 				print( "{$change['timestamp']} Modified page: {$change['title']}\n" );
-				$titlesChanged[$change['revid']] = array( $change['ns'], $change['title'] );
+				$newRevIDs[] = $change['revid'];
 			} elseif ( $logTypeAction === 'delete/delete' ) {
 				print( "{$change['timestamp']} Deleted page: {$change['title']}\n" );
 				if ( $change['ns'] == 0 ) { // Item
@@ -123,7 +123,7 @@ function main() {
 
 		$req = array(
 			'method' => 'GET', 'url' => API_QUERY_URL, 'query' => array(
-			'action' => 'query', 'revids' => implode( '|', array_keys( $titlesChanged ) ),
+			'action' => 'query', 'revids' => implode( '|', $newRevIDs ),
 			'prop' => 'revisions', 'rvprop' => 'ids|content', 'format' => 'json'
 		) );
 
@@ -134,11 +134,10 @@ function main() {
 		$applyChanges = array(); // map of (rev ID => json)
 		foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
 			$change = $pageInfo['revisions'][0];
-			list( $ns, $title ) = $titlesChanged[$change['revid']];
 			$applyChanges[$change['revid']] = $change['*'];
 		}
-		$applyChangesInOrder = array(); // $applyChanges with order matching $titlesChanged
-		foreach ( $titlesChanged as $revId => $change ) {
+		$applyChangesInOrder = array(); // $applyChanges with order matching $newRevIDs
+		foreach ( $newRevIDs as $revId ) {
 			if ( isset( $applyChanges[$revId] ) ) {
 				$applyChangesInOrder[$revId] = $applyChanges[$revId];
 			}
