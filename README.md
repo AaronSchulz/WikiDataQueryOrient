@@ -91,8 +91,8 @@ Queries are of the form:
 * {HPwIVWeb[%PROPERTYID%:%list of ITEMID or a single variable%]} [IN[%list of property IDs%]] [OUT[%list of property IDs%] [MAXDEPTH(%integer%) [RANK=(best|preferred|normal)] [QUALIFY(%FILTERQUERY%)] [WHERE(%FILTERQUERY%)]
 * {items[%LIST OF ITEMID%]} [WHERE(%FILTERQUERY%)]
 * {linkedto[%LIST OF SITELINK%]} [WHERE(%FILTERQUERY%)]
-The above all support an optional "LIMIT(%MAXRECORDS%)" at the end.
 ```
+The above all support an optional "LIMIT(%MAXRECORDS%)" at the end.
 * RANK is used to filter claims by their assigned rank.
 * QUALIFY puts conditions on claim qualifiers and WHERE puts them on the item claims.
 ```
