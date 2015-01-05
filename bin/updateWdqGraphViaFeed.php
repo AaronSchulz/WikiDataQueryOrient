@@ -60,6 +60,7 @@ function main() {
 	$rccontinue = null;
 	$lastTimestamp = $sTimestamp;
 	while ( true ) {
+		$hasContinue = isset( $baseQuery['rccontinue'] );
 		if ( $rccontinue ) {
 			$baseQuery['rccontinue'] = $rccontinue;
 		}
@@ -69,7 +70,9 @@ function main() {
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
 		$result = decodeJSON( $rbody );
 
-		$rccontinue = $result['continue']['rccontinue'];
+		if ( isset( $result['continue']['rccontinue'] ) ) {
+			$rccontinue = $result['continue']['rccontinue'];
+		}
 
 		$changeCount = count( $result['query']['recentchanges'] );
 		$itemsDeleted = array(); // list of Item IDs
@@ -120,6 +123,9 @@ function main() {
 				}
 			}
 		}
+
+		// Useful when caught up, since continue is not returned by the API
+		$baseQuery['rcstart'] = $lastTimestamp;
 
 		$req = array(
 			'method' => 'GET', 'url' => API_QUERY_URL, 'query' => array(
@@ -172,7 +178,7 @@ function main() {
 		}
 
 		// Update the replication position
-		if ( $changeCount > 0 ) {
+		if ( $changeCount > 0 && $hasContinue ) {
 			$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
 			$updater->tryCommand(
 				"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
