@@ -38,7 +38,7 @@ class WdqQueryParser {
 	const FLD_CLAIMS = '/^(claims\[\$?\d+\])(?:\[rank\s*=\s*([a-z]+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
 	/** @var array Used for getting cross products from Edge class */
-	const OUT_ITEM_FIELDS = 'out.id AS id,out.labels AS labels,out.sitelinks AS sitelinks,out.claims AS claims';
+	const OUT_ITEM_FIELDS = 'oid AS id,out.labels AS labels,out.sitelinks AS sitelinks,out.claims AS claims';
 
 	/** @var array (comparison operator => SQL operator) */
 	protected static $compareOpMap = array(
@@ -58,7 +58,7 @@ class WdqQueryParser {
 	 * @param integer $limit
 	 * @return string Orient SQL
 	 */
-	public static function parse( $s, $timeout = 5000, $limit = 1000 ) {
+	public static function parse( $s, $timeout = 5000, $limit = 1e9 ) {
 		$s = trim( $s );
 
 		// Remove any single-line comments

@@ -36,7 +36,7 @@ class WdqQueryEngine {
 	 * @return array
 	 */
 	public function query( $query, $timeout = 5000, $limit = 1e9 ) {
-		$sql = WdqQueryParser::parse( $query, $timeout );
+		$sql = WdqQueryParser::parse( $query, $timeout, $limit );
 
 		$req = array(
 			'method'  => 'GET',

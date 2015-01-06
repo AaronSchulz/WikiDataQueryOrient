@@ -27,6 +27,8 @@ function main() {
 
 "	);
 
+	$limit = 10000;
+	$timeout = 10000;
 	while ( true ) {
 		print( "Enter query:\n" );
 		$line = trim( stream_get_line( STDIN, 1024, PHP_EOL ) );
@@ -39,7 +41,7 @@ function main() {
 			$query .= $line;
 		}
 		try {
-			$sql = WdqQueryParser::parse( $query );
+			$sql = WdqQueryParser::parse( $query, $timeout, $limit );
 		} catch ( WdqParseException $e ) {
 			print( "Caught parser error: {$e->getMessage()}\n" );
 			continue;
@@ -49,7 +51,7 @@ function main() {
 		print( "Querying $url...\n" );
 		$start = microtime( true );
 		try {
-			$results = $engine->query( $query, 5000, 1000 );
+			$results = $engine->query( $query, $timeout, $limit );
 		} catch ( Exception $e ) {
 			print( "Caught error: {$e->getMessage()}\n" );
 			continue;
