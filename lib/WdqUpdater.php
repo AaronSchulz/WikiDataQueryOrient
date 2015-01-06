@@ -121,18 +121,20 @@ class WdqUpdater {
 			'id'        => $id,
 			'labels'    => $labels ? (object)$labels : (object)array(),
 			'sitelinks' => $siteLinks ? (object)$siteLinks : (object)array(),
-			'deleted'   => null
+			'deleted'   => null,
+			'stub'      => null
 		);
 
 		if ( isset( $item['claims'] ) ) {
 			// Include simplified claims for easy filtering/selecting
 			$coreItem['claims'] = (object)$this->getSimpliedClaims( $item['claims'] );
+		} else {
+			$coreItem['claims'] = (object)array();
 		}
 
 		if ( $update === 'insert' ) {
 			return "create vertex Item content " . WdqUtils::toJSON( $coreItem );
 		} elseif ( $update === 'update' ) {
-			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
 			$set = $this->sqlSet( $coreItem );
 			return "update Item set $set where id={$coreItem['id']}";
 		}
@@ -146,7 +148,7 @@ class WdqUpdater {
 	 * @param array $claims
 	 * @return array
 	 */
-	protected function getSimpliedClaims( array $claims ) {
+	public function getSimpliedClaims( array $claims ) {
 		$sClaims = array();
 
 		foreach ( $claims as $propertyId => $statements ) {
@@ -167,6 +169,7 @@ class WdqUpdater {
 				if ( isset( $statement['qualifiers'] ) ) {
 					$sClaim['qlfrs'] = $this->getSimpleQualifiers( $statement['qualifiers'] );
 				}
+				$sClaim['sid'] = $statement['id'];
 
 				$sClaims[$pId][] = $sClaim;
 			}
@@ -261,13 +264,13 @@ class WdqUpdater {
 			'id'       => $id,
 			'datatype' => $item['datatype'],
 			'labels'   => $labels ? (object)$labels : (object)array(),
-			'deleted'  => null
+			'deleted'  => null,
+			'stub'     => null
 		);
 
 		if ( $update === 'insert' ) {
 			return "create vertex Property content " . WdqUtils::toJSON( $coreItem );
 		} elseif ( $update === 'update' ) {
-			// Don't use CONTENT; https://github.com/orientechnologies/orientdb/issues/3176
 			$set = $this->sqlSet( $coreItem );
 			return "update Property set $set where id={$coreItem['id']}";
 		}
@@ -279,22 +282,23 @@ class WdqUpdater {
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel
 	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
 	 *
-	 * @param array $entities List of unique items (no item should appear twice)
+	 * @param array $entities List of unique items from the DB (simplified form)
 	 * @param string $method (rebuild/bulk)
 	 * @param array|null $classes Only do certain edge classes
 	 */
-	public function makeEntityEdges( array $entities, $method, array $classes = null ) {
+	public function makeItemEdges( array $entities, $method, array $classes = null ) {
 		$queries = array();
+
+		$itemRIDs = array();
+		foreach ( $entities as $entity ) {
+			if ( isset( $entity['rid'] ) ) {
+				$itemRIDs[] = $entity['rid'];
+				$this->iCache->set( (int) $entity['id'], $entity['rid'] );
+			}
+		}
 
 		$curEdgeSids = array(); // map of (class:sid => #RID)
 		if ( $method !== 'bulk_init' ) {
-			$ids = array(); // Item IDs
-			foreach ( $entities as $entity ) {
-				$ids[] = WdqUtils::wdcToLong( $entity['id'] );
-			}
-			$this->updateItemRIDCache( $ids );
-			$itemRIDs = array_map( array( $this->iCache, 'get' ), $ids );
-
 			$from = '[' . implode( ',', $itemRIDs ) . ']';
 			$res = $this->tryQuery(
 				"select sid,@class,@RID from " .
@@ -312,12 +316,10 @@ class WdqUpdater {
 
 		$newEdgeSids = array(); // map of (class:sid => 1)
 		foreach ( $entities as $entity ) {
-			if ( $entity['type'] === 'item' ) {
-				$queries = array_merge(
-					$queries,
-					$this->importItemEdgesSQL( $entity, $curEdgeSids, $newEdgeSids, $classes )
-				);
-			}
+			$queries = array_merge(
+				$queries,
+				$this->importItemEdgesSQL( $entity, $curEdgeSids, $newEdgeSids, $classes )
+			);
 		}
 
 		if ( $method !== 'bulk_init' ) {
@@ -339,40 +341,27 @@ class WdqUpdater {
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel
 	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
 	 *
-	 * @param array $item
+	 * @param array $entity Simplified entity
 	 * @param array $curEdgeSids Map of (class:sid => #RID) for all sids of at least $item
 	 * @param array $newEdgeSids Empty array
 	 * @param array|null $classes Only do certain edge classes
 	 * @return array
 	 */
 	public function importItemEdgesSQL(
-		array $item, array $curEdgeSids, array &$newEdgeSids, array $classes = null
+		array $entity, array $curEdgeSids, array &$newEdgeSids, array $classes = null
 	) {
-		if ( !isset( $item['claims'] ) ) {
+		if ( !isset( $entity['claims'] ) ) {
 			return array(); // nothing to do
 		} elseif ( $classes !== null && !count( $classes ) ) {
 			return array(); // nothing to do
 		}
 
-		$qId = WdqUtils::wdcToLong( $item['id'] );
-
-		$maxRankByPid = array(); // map of (pid => rank)
-		foreach ( $item['claims'] as $propertyId => $statements ) {
-			$pId = WdqUtils::wdcToLong( $propertyId );
-			foreach ( $statements as $statement ) {
-				$rank = self::$rankMap[$statement['rank']];
-				$maxRankByPid[$pId] = isset( $maxRankByPid[$pId] )
-					? max( $maxRankByPid[$pId], $rank )
-					: $rank;
-			}
-		}
+		$qId = (int) $entity['id'];
 
 		$dvEdges = array(); // list of data value statements (maps with class/val/rank)
-		foreach ( $item['claims'] as $propertyId => $statements ) {
-			$pId = WdqUtils::wdcToLong( $propertyId );
-			foreach ( $statements as $statement ) {
-				$mainSnak = $statement['mainsnak'];
-
+		foreach ( $entity['claims'] as $propertyId => $statements ) {
+			$pId = (int) $propertyId;
+			foreach ( $statements as $mainSnak ) {
 				$edges = array();
 				if ( $mainSnak['snaktype'] === 'value' ) {
 					$edges = $this->getValueStatementEdges( $qId, $pId, $mainSnak );
@@ -394,11 +383,11 @@ class WdqUpdater {
 
 				// https://www.wikidata.org/wiki/Help:Ranking
 				foreach ( $edges as &$edge ) {
-					$edge['rank'] = self::$rankMap[$statement['rank']];
-					$edge['best'] = $edge['rank'] >= $maxRankByPid[$pId] ? 1 : 0;
-					$edge['sid'] = $statement['id'];
-					$edge['qlfrs'] = isset( $statement['qualifiers'] )
-						? (object)$this->getSimpleQualifiers( $statement['qualifiers'] )
+					$edge['rank'] = $mainSnak['rank'];
+					$edge['best'] = $mainSnak['best'];
+					$edge['sid'] = $mainSnak['sid'];
+					$edge['qlfrs'] = isset( $mainSnak['qlfrs'] )
+						? (object)$mainSnak['qlfrs']
 						: (object)array();
 					$newEdgeSids[$edge['class'] . ':' . $edge['sid']] = 1;
 				}
@@ -468,9 +457,9 @@ class WdqUpdater {
 	protected function getValueStatementEdges( $qId, $pId, array $mainSnak ) {
 		$dvEdges = array();
 
-		$type = $mainSnak['datavalue']['type'];
+		$type = $mainSnak['valuetype'];
 		if ( $type === 'wikibase-entityid' ) {
-			$otherId = (int) $mainSnak['datavalue']['value']['numeric-id'];
+			$otherId = (int) $mainSnak['datavalue'];
 			$dvEdges[] = array(
 				'class'   => 'HPwIV',
 				'val'     => $otherId,
@@ -486,7 +475,7 @@ class WdqUpdater {
 				'toClass' => 'Item'
 			);
 		} elseif ( $type === 'time' ) {
-			$time = $mainSnak['datavalue']['value']['time'];
+			$time = $mainSnak['datavalue'];
 			$tsUnix = WdqUtils::getUnixTimeFromISO8601( $time ); // for range queries
 			if ( $tsUnix !== false ) {
 				$dvEdges[] = array(
@@ -498,7 +487,7 @@ class WdqUpdater {
 				);
 			}
 		} elseif ( $type === 'quantity' ) {
-			$amount = $mainSnak['datavalue']['value']['amount']; // decimals
+			$amount = $mainSnak['datavalue']; // decimals
 			$dvEdges[] = array(
 				'class'   => 'HPwQV',
 				'val'     => (float) $amount,
@@ -509,8 +498,8 @@ class WdqUpdater {
 		} elseif ( $type === 'globecoordinate' ) {
 			$dvEdge = WdqUtils::normalizeGeoCoordinates( array(
 				'class'   => 'HPwCV',
-				'lat'     => (float) $mainSnak['datavalue']['value']['latitude'],
-				'lon'     => (float) $mainSnak['datavalue']['value']['longitude'],
+				'lat'     => (float) $mainSnak['datavalue']['lat'],
+				'lon'     => (float) $mainSnak['datavalue']['lon'],
 				'oid'     => $qId,
 				'iid'     => $pId,
 				'toClass' => 'Property'
@@ -521,7 +510,7 @@ class WdqUpdater {
 		} elseif ( $type === 'url' || $type === 'string' ) {
 			$dvEdges[] = array(
 				'class'   => 'HPwSV',
-				'val'     => (string) $mainSnak['datavalue']['value'],
+				'val'     => (string) $mainSnak['datavalue'],
 				'oid'     => $qId,
 				'iid'     => $pId,
 				'toClass' => 'Property'
@@ -529,6 +518,53 @@ class WdqUpdater {
 		}
 
 		return $dvEdges;
+	}
+
+	/**
+	 * @param string|int|array $ids 64-bit integers
+	 */
+	public function createDeletedPropertyStubs( $ids ) {
+		if ( !$ids ) {
+			return;
+		}
+
+		$queries = array();
+		foreach ( $ids as $id ) {
+			$item = array(
+				'id'        => (int) $id,
+				'labels'    => (object)array(),
+				'datatype'  => 'unknown',
+				'deleted'   => true,
+				'stub'      => true
+			);
+			$queries[] = "create vertex Property content " . WdqUtils::toJSON( $item );
+		}
+
+		$this->tryCommand( $queries );
+	}
+
+	/**
+	 * @param string|int|array $ids 64-bit integers
+	 */
+	public function createDeletedItemStubs( $ids ) {
+		if ( !$ids ) {
+			return;
+		}
+
+		$queries = array();
+		foreach ( $ids as $id ) {
+			$item = array(
+				'id'        => (int) $id,
+				'labels'    => (object)array(),
+				'claims'    => (object)array(),
+				'sitelinks' => (object)array(),
+				'deleted'   => true,
+				'stub'      => true
+			);
+			$queries[] = "create vertex Item content " . WdqUtils::toJSON( $item );
+		}
+
+		$this->tryCommand( $queries );
 	}
 
 	/**
@@ -598,10 +634,8 @@ class WdqUpdater {
 		// Retry once for random failures (or when the payload is too big)...
 		if ( $rcode != 200 && count( $sql ) > 1 ) {
 			if ( $atomic ) {
-				print( "Retrying batch command.\n" );
 				list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->http->run( $req );
 			} else {
-				print( "Retrying each batch command.\n" );
 				// Break down the commands if possible, which gets past some failures
 				foreach ( $sql as $sqlCmd ) {
 					$this->tryCommand( $sqlCmd, true, $ignore_dups );
@@ -628,7 +662,7 @@ class WdqUpdater {
 	 * @return array
 	 * @throws Exception
 	 */
-	public function tryQuery( $sql, $limit = 20 ) {
+	public function tryQuery( $sql, $limit = 1e9 ) {
 		$req = array(
 			'method'  => 'GET',
 			'url'     => "{$this->url}/query/WikiData/sql/" . rawurlencode( $sql ) . "/$limit",
@@ -710,20 +744,6 @@ class WdqUpdater {
 		$res = $this->tryQuery( 'select from index:ProperyIdIdx', 10000 );
 		foreach ( $res as $record ) {
 			$this->pCache[(int)$record['key']] = $record['rid'];
-		}
-	}
-
-	/**
-	 * Update the the Q# => #RID cache map
-	 *
-	 * @param integer $fromId
-	 * @param integer $toId
-	 */
-	public function mergeItemRIDCache( $fromId, $toId ) {
-		$res = $this->tryQuery(
-			"select from index:ItemIdIdx where key BETWEEN $fromId AND $toId", 1000 );
-		foreach ( $res as $record ) {
-			$this->iCache->set( (int)$record['key'], $record['rid'] );
 		}
 	}
 

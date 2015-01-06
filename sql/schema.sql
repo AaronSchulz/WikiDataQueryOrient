@@ -17,6 +17,7 @@ create property Item.sitelinks EMBEDDEDMAP string;
 create property Item.claims EMBEDDEDMAP embedded;
 -- Flag things as deleted when deleted/moved
 create property Item.deleted boolean;
+create property Item.stub boolean;
 -- Enforce basic field presence
 alter property Item.id MANDATORY true;
 alter property Item.labels MANDATORY true;
@@ -36,9 +37,11 @@ create property Property.labels EMBEDDEDMAP string;
 create property Property.datatype string;
 -- Flag things as deleted when deleted/moved
 create property Property.deleted boolean;
+create property Property.stub boolean;
 -- Enforce basic field presence
 alter property Property.id MANDATORY true;
 alter property Property.labels MANDATORY true;
+alter property Property.datatype MANDATORY true;
 -- P codes are unique
 create index ProperyIdIdx on Property (id) unique;
 

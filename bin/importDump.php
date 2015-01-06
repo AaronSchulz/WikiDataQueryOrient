@@ -77,23 +77,20 @@ function iterateJsonDump( $dump, array $modParams, $posFile, callable $callback 
 
 function main() {
 	$options = getopt( '', array(
-		"dump:", "phase:", "user:", "password:",
+		"dump:", "user:", "password:",
 		"url::", "posdir::", "method::", "modulo::", "classes::"
 	) );
 
 	$dump = $options['dump'];
-	$phase = $options['phase']; // vertexes/edges
 	$user = $options['user'];
 	$password = $options['password'];
 	$url = isset( $options['url'] ) ? $options['url'] : 'http://localhost:2480';
-	$method = isset( $options['method'] )
-		? $options['method']
-		: ( $phase === 'vertexes' ? 'upsert' : 'rebuild' );
+	$method = isset( $options['method'] ) ? $options['method'] : 'upsert';
 	$modulo = isset( $options['modulo'] ) // 4,1 means (object# % 4 = 1)
 		? $options['modulo']
 		: '1,0';
 	$posFile = isset( $options['posdir'] )
-		? "{$options['posdir']}/$phase-$method-$modulo.pos"
+		? "{$options['posdir']}/vertexes-$method-$modulo.pos"
 		: null;
 	$modParams = explode( ',', $modulo );
 	if ( count( $modParams ) != 2 ) {
@@ -114,79 +111,38 @@ function main() {
 	$auth = array( 'url' => $url, 'user' => $user, 'password' => $password );
 	$updater = new WdqUpdater( new MultiHttpClient( array() ), $auth );
 
-	# Pass 1; load in all vertexes
-	if ( $phase === 'vertexes' ) {
-		$batch = array();
-		$batchSize = 100;
-		if ( $classes ) {
-			$classes = array_map( 'strtolower', $classes );
-		}
-		iterateJsonDump( $dump, $modParams, $posFile,
-			function( $entity ) use ( $updater, $method, $classes, &$batch, $batchSize ) {
-				if ( $classes !== null && !in_array( $entity['type'], $classes ) ) {
-					return false; // nothing to do
-				}
-				if ( $entity['type'] === 'item' ) {
-					print( 'Importing vertex for Item ' . $entity['id'] . " ($method)\n" );
-					$batch[] = $entity;
-				} elseif ( $entity['type'] === 'property' ) {
-					print( 'Importing vertex for Property ' . $entity['id'] . " ($method)\n" );
-					$batch[] = $entity;
-				}
-				if ( count( $batch ) >= $batchSize ) {
-					print( "Comitting..." );
-					$updater->importEntities( $batch, $method );
-					print( "done\n" );
-					$batch = array();
-					return true;
-				}
-				return false;
+	$batch = array();
+	$batchSize = 100;
+	if ( $classes ) {
+		$classes = array_map( 'strtolower', $classes );
+	}
+	iterateJsonDump( $dump, $modParams, $posFile,
+		function( $entity ) use ( $updater, $method, $classes, &$batch, $batchSize ) {
+			if ( $classes !== null && !in_array( $entity['type'], $classes ) ) {
+				return false; // nothing to do
 			}
-		);
-		if ( count( $batch ) ) {
-			print( "Comitting..." );
-			$updater->importEntities( $batch, $method );
-			print( "done\n" );
-			$batch = array();
-		}
-	# Pass 2: establish all edges between vertexes
-	} elseif ( $phase === 'edges' ) {
-		$updater->buildPropertyRIDCache();
-		$batch = array();
-		$batchSize = 100;
-		iterateJsonDump( $dump, $modParams, $posFile,
-			function( $entity, $count ) use ( $updater, $method, $classes, &$batch, $batchSize ) {
-				if ( $entity['type'] !== 'item' ) {
-					return false;
-				}
-				// Prefetch #RIDs for items to reduce random I/O
-				$qId = WdqUtils::wdcToLong( $entity['id'] );
-				if ( $qId % 500 == 1 ) {
-					$qIdStop = $qId + 499;
-					$updater->mergeItemRIDCache( $qId, $qIdStop );
-				}
-				// Restarting might redo the first batch; preserve idempotence
-				$safeMethod = ( $count <= $batchSize ) ? 'rebuild' : $method;
-				print( 'Importing edges for Item ' . $entity['id'] . " ($safeMethod)\n" );
-
+			if ( $entity['type'] === 'item' ) {
+				print( 'Importing vertex for Item ' . $entity['id'] . " ($method)\n" );
 				$batch[] = $entity;
-				if ( count( $batch ) >= $batchSize ) {
-					print( "Comitting..." );
-					$updater->makeEntityEdges( $batch, $method, $classes );
-					print( "done\n" );
-					$batch = array();
-					return true;
-				}
-
-				return false;
+			} elseif ( $entity['type'] === 'property' ) {
+				print( 'Importing vertex for Property ' . $entity['id'] . " ($method)\n" );
+				$batch[] = $entity;
 			}
-		);
-		if ( count( $batch ) ) {
-			print( "Comitting..." );
-			$updater->makeEntityEdges( $batch, $method, $classes );
-			print( "done\n" );
-			$batch = array();
+			if ( count( $batch ) >= $batchSize ) {
+				print( "Comitting..." );
+				$updater->importEntities( $batch, $method );
+				print( "done\n" );
+				$batch = array();
+				return true;
+			}
+			return false;
 		}
+	);
+	if ( count( $batch ) ) {
+		print( "Comitting..." );
+		$updater->importEntities( $batch, $method );
+		print( "done\n" );
+		$batch = array();
 	}
 }
 

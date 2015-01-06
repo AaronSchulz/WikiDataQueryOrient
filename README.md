@@ -28,11 +28,14 @@ DB schema and server setup
 Importing data
 --------------
 
-1) Import vertexes:
-	php importWikiDataDump.php --dump <dump path> --phase vertexes --user root --password root --method=insert --posdir=F:/importer/pos
+1) Import live vertexes:
+	php importDump.php --user root --password root --method=insert --dump <dump path> --posdir=F:/importer/pos
 
-2) Import edges:
-	php importWikiDataDump.php --dump <dump path> --phase edges --user root --password root --method=bulk_init --posdir=F:/importer/pos
+2) Import sub vertexes:
+	php createStubEntities.php --user root --password root --posdir=F:/importer/pos
+
+3) Import edges:
+	php connectEntities.php --user root --password root --method=bulk_init --posdir=F:/importer/pos
 
 Updating via the API
 --------------

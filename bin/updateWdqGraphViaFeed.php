@@ -68,7 +68,13 @@ function main() {
 
 		print( "Requesting changes from " . API_QUERY_URL . "...($rccontinue)\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
-		$result = decodeJSON( $rbody );
+		try {
+			$result = decodeJSON( $rbody );
+		} catch ( Exception $e ) {
+			trigger_error( "Caught error: {$e->getMessage}" );
+			sleep( 5 );
+			continue;
+		}
 
 		if ( isset( $result['continue']['rccontinue'] ) ) {
 			$rccontinue = $result['continue']['rccontinue'];
@@ -102,6 +108,7 @@ function main() {
 					$propertiesDeleted[] = $id;
 				}
 			} elseif ( $logTypeAction === 'delete/restore' ) {
+				// @TODO: get current version and update vertexes
 				print( "{$change['timestamp']} Restored page: {$change['title']}\n" );
 				if ( $change['ns'] == 0 ) { // Item
 					$id = WdqUtils::wdcToLong( $change['title'] );
@@ -135,7 +142,13 @@ function main() {
 
 		print( "Requesting corresponding revision content from " . API_QUERY_URL . "...\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
-		$result = decodeJSON( $rbody );
+		try {
+			$result = decodeJSON( $rbody );
+		} catch ( Exception $e ) {
+			trigger_error( "Caught error: {$e->getMessage}" );
+			sleep( 5 );
+			continue;
+		}
 
 		$applyChanges = array(); // map of (rev ID => json)
 		foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
@@ -157,7 +170,8 @@ function main() {
 				print( "Ignored entity redirect: $json\n" );
 			} elseif ( $entity['type'] === 'item' ) {
 				$updater->importEntities( array( $entity ), 'upsert' );
-				$updater->makeEntityEdges( array( $entity ), 'rebuild' );
+				$entity['claims'] = $updater->getSimpliedClaims( $entity['claims'] );
+				$updater->makeItemEdges( array( $entity ), 'rebuild' );
 			} elseif ( $entity['type'] === 'property' ) {
 				$updater->importEntities( array( $entity ), 'upsert' );
 			} else {
