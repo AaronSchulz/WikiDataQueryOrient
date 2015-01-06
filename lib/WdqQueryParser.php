@@ -38,7 +38,7 @@ class WdqQueryParser {
 	const FLD_CLAIMS = '/^(claims\[\$?\d+\])(?:\[rank\s*=\s*([a-z]+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
 	/** @var array Used for getting cross products from Edge class */
-	const OUT_ITEM_FIELDS = 'oid AS id,out.labels AS labels,out.sitelinks AS sitelinks,out.claims AS claims';
+	const OUT_ITEM_FIELDS = 'out AS @rid,out.class AS @class,out AS fullitem';
 
 	/** @var array (comparison operator => SQL operator) */
 	protected static $compareOpMap = array(
@@ -104,19 +104,16 @@ class WdqQueryParser {
 		// Validate the properties selected.
 		// Enforce that [] fields use aliases (they otherwise get called out1, out2...)
 		// @note: propagate certain * fields from subqueries that could be useful
-		$proj = array( '*depth', '*distance', '*timevalue', '*value', '*pid' );
+		$proj = array( '*depth', '*distance', '*timevalue', '*value' );
 		foreach ( explode( ',', $props ) as $prop ) {
 			$prop = trim( $prop );
 			$m = array();
 			if ( preg_match( self::FLD_BASIC, $prop ) ) {
-				$proj[] = "{$prop} AS {$prop}";
+				$proj[] = "@rid.{$prop} AS {$prop}";
 			} elseif ( preg_match( self::FLD_MAP, $prop, $m ) ) {
-				$proj[] = "{$m[1]} AS {$m[2]}";
+				$proj[] = "@rid.{$m[1]} AS {$m[2]}";
 			} elseif ( preg_match( self::FLD_CLAIMS, $prop, $m ) ) {
-				$field = "{$m[1]}";
-				// Per https://github.com/orientechnologies/orientdb/issues/3284
-				// we only get one filter, so make it on rank
-				// https://bugs.php.net/bug.php?id=51881
+				$field = "@rid.{$m[1]}";
 				if ( empty( $m[2] ) ) {
 					// no rank filter
 				} elseif ( $m[2] === 'best' ) {
@@ -267,9 +264,10 @@ class WdqQueryParser {
 			$cond = "(iid=$pId AND val=$valId)"; // parenthesis needed for index usage
 			$orderBy = "ORDER BY oid ASC"; // give a stable ordering when distributed
 			$sql = "SELECT $ofields,oid FROM HPwSV WHERE $cond $cont AND @ECOND@ GROUP BY oid $orderBy";
-		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^]]+)\]\s*(ASC|DESC)?\s*(?:SKIP\((\d+)\)\s*)?/", $rest, $m ) ) {
+		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^],]+)\]\s*(ASC|DESC)?\s*(?:SKIP\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
+			// Support only one condition due to query planner (commas disallowed above)
 			if ( $class === 'HPwTV' ) {
 				$valField = '*timevalue';
 				$cond = self::parsePeriodDive( 'val', $m[3], "iid=$pId" );
@@ -285,8 +283,9 @@ class WdqQueryParser {
 			// @note: with several claims, *value may change depending on ASC vs DESC
 			$orderBy = "ORDER BY iid $order,val $order,oid $order";
 			$sql = "SELECT $fields,oid FROM $class WHERE $cond AND @ECOND@ GROUP BY oid $orderBy $skip";
-		} elseif ( preg_match( "/^HPwCV\[(\d+):([^]]+)\]\s*(?:SKIP\((\d+)\)\s*)?/", $rest, $m ) ) {
+		} elseif ( preg_match( "/^HPwCV\[(\d+):([^],]+)\]\s*(?:SKIP\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
+			// Support only one condition due to query planner (commas disallowed above)
 			$cond = self::parseAroundDive( $m[2] );
 			$skip = !empty( $m[3] ) ? "SKIP {$m[3]}" : "";
 			// @note: relies on DB picking "from first scanned" values for non-oid fields
@@ -337,11 +336,13 @@ class WdqQueryParser {
 			foreach ( $pIdsFD as $pId ) {
 				// Edges followed in forwards direction are filtered on certain PIDs
 				$tfields[] = "Item.out_HIaPV[pid=$pId]";
+				$tfields[] = "Item.fullitem.out_HIaPV[pid=$pId]"; // for generators
 				$tfields[] = "HIaPV.in";
 			}
 			foreach ( $pIdsRV as $pId ) {
 				// Edges followed in reverse direction are filtered on certain PIDs
 				$tfields[] = "Item.in_HIaPV[pid=$pId]";
+				$tfields[] = "Item.fullitem.in_HIaPV[pid=$pId]"; // for generators
 				$tfields[] = "HIaPV.out";
 			}
 			$depthCond = $maxDepth
@@ -398,7 +399,7 @@ class WdqQueryParser {
 			// Check if there is a WHERE condition
 			} elseif ( $token === 'WHERE' ) {
 				$statement = self::consumePair( $rest, '()' );
-				$iClaimCond = self::parseFilters( $statement, 'claims' );
+				$iClaimCond = self::parseFilters( $statement, '@rid.claims' );
 				$eClaimCond = self::parseFilters( $statement, 'out.claims' );
 			// Check if there is a LIMI condition
 			} elseif ( $token === 'LIMIT' ) {
@@ -413,12 +414,12 @@ class WdqQueryParser {
 		}
 
 		// Apply item vertex filtering conditions
-		$itemCond = 'deleted IS NULL';
+		$itemCond = '@rid.deleted IS NULL';
+		$sql = str_replace( '@IDCOND@', $itemCond, $sql );
 		if ( $iClaimCond ) {
 			$itemCond .= " AND $iClaimCond";
 		}
 		$sql = str_replace( '@ICOND@', $itemCond, $sql );
-		$sql = str_replace( '@IDCOND@', 'deleted IS NULL', $sql );
 
 		// Apply edge filtering conditions for non-recursive queries
 		$edgeCond = implode( ' AND ', array_filter(
@@ -443,6 +444,9 @@ class WdqQueryParser {
 	/**
 	 * Parse things like "HPwIV[X:A,C-D] AND (HPwQV[X:Y] OR HPwQV[X:Y])"
 	 *
+	 * See https://github.com/orientechnologies/orientdb/wiki/SQL-Where
+	 * Lack of full "NOT" operator support means we have to be careful.
+	 *
 	 * @param string $s
 	 * @param string $claimPrefix
 	 * @return string Orient SQL
@@ -458,11 +462,11 @@ class WdqQueryParser {
 			if ( $rest[0] === '(' ) {
 				$statement = self::consumePair( $rest , '()' );
 				$where[] = self::parseFilters( $statement, $claimPrefix );
-			} elseif ( preg_match( '/^(NOT)\s+\(/', $rest, $m ) ) {
+			} elseif ( preg_match( '/^(NOT)\s*\(/', $rest, $m ) ) {
 				$operator = $m[1];
 				$rest = substr( $rest, strlen( $m[0] ) - 1 );
 				$statement = self::consumePair( $rest , '()' );
-				$where[] = 'NOT (' . self::parseFilter( $statement, $claimPrefix ) . ')';
+				$where[] = 'NOT ' . self::parseFilter( $statement, $claimPrefix );
 			} elseif ( preg_match( '/^(AND|OR)\s/', $rest, $m ) ) {
 				if ( $junction && $m[1] !== $junction ) {
 					// "(A AND B OR C)" is confusing and requires precendence order
@@ -490,15 +494,12 @@ class WdqQueryParser {
 	/**
 	 * Parse things like "HPwIV[X:A,C-D]"
 	 *
-	 * See https://github.com/orientechnologies/orientdb/wiki/SQL-Where
-	 * Lack of full "NOT" operator support means we have to be careful.
-	 *
 	 * @param string $s
 	 * @param string $claimPrefix
 	 * @return string Orient SQL
 	 */
 	protected static function parseFilter( $s, $claimPrefix ) {
-		$where = array();
+		$where = '';
 
 		$s = trim( $s );
 
@@ -536,7 +537,7 @@ class WdqQueryParser {
 			foreach ( explode( ',', $m[2] ) as $pId ) {
 				$or[] = "{$claimPrefix}[$pId]$rankFilter contains (snaktype in $stype)";
 			}
-			$where[] = '(' . implode( ' OR ', $or ) . ')';
+			$where = '(' . implode( ' OR ', $or ) . ')';
 		} elseif ( preg_match( "/^HPwV\[(\d+):([^];]+)(?:;rank=([a-z]+))?\]$/", $s, $m ) ) {
 			$pId = $m[1];
 			$rank = !empty( $m[3] ) ? $m[3] : null;
@@ -580,7 +581,7 @@ class WdqQueryParser {
 					throw new WdqParseException( "Invalid quantity or range: $val" );
 				}
 			}
-			$where[] = '(' . implode( ' OR ', $or ) . ')';
+			$where = '(' . implode( ' OR ', $or ) . ')';
 		} elseif ( preg_match( "/^haslinks\[((?:\\$\d+,?)+)\]\$/", $s, $m ) ) {
 			if ( preg_match( '/(^|\.)qlfrs$/', $claimPrefix ) ) {
 				throw new WdqParseException( "Invalid qualifier condition: $s" );
@@ -590,16 +591,16 @@ class WdqQueryParser {
 			foreach ( $valIds as $valId ) {
 				$or[] = "sitelinks containskey $valId";
 			}
-			$where[] = '(' . implode( ' OR ', $or ) . ')';
+			$where = '(' . implode( ' OR ', $or ) . ')';
 		} else {
 			throw new WdqParseException( "Invalid filter or qualifier condition: $s" );
 		}
 
-		if ( !$where ) {
+		if ( $where == ''  ) {
 			throw new WdqParseException( "Bad filter or qualifier condition: $s" );
 		}
 
-		return implode( ' AND ', $where );
+		return $where;
 	}
 
 	/**
