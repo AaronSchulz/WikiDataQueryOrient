@@ -23,7 +23,7 @@ function iterateItems( WdqUpdater $updater, $bSize, $posFile, callable $callback
 	$lastTime = microtime( true );
 	do {
 		$res = $updater->tryQuery(
-			"SELECT id,claims,@rid FROM Item where id > $pos ORDER BY id", $bSize );
+			"SELECT id,claims,deleted,@rid FROM Item where id > $pos ORDER BY id", $bSize );
 		if ( !$res ) {
 			break;
 		}

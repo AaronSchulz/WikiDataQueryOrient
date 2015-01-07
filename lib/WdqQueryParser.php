@@ -38,7 +38,7 @@ class WdqQueryParser {
 	const FLD_CLAIMS = '/^(claims\[\$?\d+\])(?:\[rank\s*=\s*([a-z]+)\])?\s+AS\s+([a-zA-Z][a-zA-Z0-9_]*)$/';
 
 	/** @var array Used for getting cross products from Edge class */
-	const OUT_ITEM_FIELDS = 'out AS @rid,out.class AS @class,out AS fullitem';
+	const OUT_ITEM_FIELDS = 'out AS @rid,"Item" AS @class,out AS fullitem';
 
 	/** @var array (comparison operator => SQL operator) */
 	protected static $compareOpMap = array(
@@ -423,13 +423,13 @@ class WdqQueryParser {
 
 		// Apply edge filtering conditions for non-recursive queries
 		$edgeCond = implode( ' AND ', array_filter(
-			array( $rankCond, $qualifyCond, 'out.deleted IS NULL', $eClaimCond ),
+			array( $rankCond, $qualifyCond, 'odeleted IS NULL', $eClaimCond ),
 			'strlen'
 		) );
 		$sql = str_replace( '@ECOND@', $edgeCond, $sql );
 		// Apply edge filtering conditions for recursive queries (defer claim conditions)
 		$edgeCondTraverse = implode( ' AND ', array_filter(
-			array( $rankCond, $qualifyCond, 'out.deleted IS NULL' ),
+			array( $rankCond, $qualifyCond, 'odeleted IS NULL' ),
 			'strlen'
 		) );
 		$sql = str_replace( '@ETCOND@', $edgeCondTraverse, $sql );

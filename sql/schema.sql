@@ -3,11 +3,15 @@
 -- 2) 'best' fields are 0 or 1 (1 if 'rank' is >= max rank of item statements for that property).
 -- 3) 'sid' fields identify a statement ID, making it easy to reference in the full JSON.
 -- 4) 'oid'/'iid' are denormalized out.id/in.id to avoid network I/O.
+-- 5) 'odeleted' is denormalized out.deleted to avoid network I/O.
 
 create database remote:localhost/WikiData root root plocal graph;
 
+create class Entity extends V;
+create class Claim extends E;
+
 -- Item pages (Q entity)
-create class Item extends V;
+create class Item extends Entity;
 create property Item.id long;
 -- Store labels as a map of <language> => <label>
 create property Item.labels EMBEDDEDMAP string;
@@ -29,7 +33,7 @@ create index ItemIdIdx on Item (id) unique;
 create index ItemSiteLinksIdx on Item (sitelinks by value) notunique_hash_index;
 
 -- Property pages (P entity)
-create class Property extends V;
+create class Property extends Entity;
 create property Property.id long;
 -- Store labels as a map of <language> => <label>
 create property Property.labels EMBEDDEDMAP string;
@@ -46,13 +50,14 @@ alter property Property.datatype MANDATORY true;
 create index ProperyIdIdx on Property (id) unique;
 
 -- "Item X has an unspecific value for Property Y" relationships
-create class HPwSomeV extends E;
+create class HPwSomeV extends Claim;
 create property HPwSomeV.out LINK Item;
 create property HPwSomeV.in LINK Property;
 create property HPwSomeV.rank short;
 create property HPwSomeV.best short;
 create property HPwSomeV.qlfrs EMBEDDEDMAP embedded;
 create property HPwSomeV.oid long;
+create property HPwSomeV.odeleted boolean;
 create property HPwSomeV.iid long;
 create property HPwSomeV.sid string;
 alter property HPwSomeV.rank MANDATORY true;
@@ -64,13 +69,14 @@ alter property HPwSomeV.sid MANDATORY true;
 create index HPwSomeVIidIdx on HPwSomeV (iid, oid) notunique;
 
 -- "Item X has no value for Property Y" relationships
-create class HPwNoV extends E;
+create class HPwNoV extends Claim;
 create property HPwNoV.out LINK Item;
 create property HPwNoV.in LINK Property;
 create property HPwNoV.rank short;
 create property HPwNoV.best short;
 create property HPwNoV.qlfrs EMBEDDEDMAP embedded;
 create property HPwNoV.oid long;
+create property HPwNoV.odeleted boolean;
 create property HPwNoV.iid long;
 create property HPwNoV.sid string;
 alter property HPwNoV.rank MANDATORY true;
@@ -82,7 +88,7 @@ alter property HPwNoV.sid MANDATORY true;
 create index HPwNoVIidIdx on HPwNoV (iid, oid) notunique;
 
 -- "Item X has quantity value Z for Property Y" relationships
-create class HPwQV extends E;
+create class HPwQV extends Claim;
 create property HPwQV.out LINK Item;
 create property HPwQV.in LINK Property;
 create property HPwQV.val double;
@@ -90,6 +96,7 @@ create property HPwQV.rank short;
 create property HPwQV.best short;
 create property HPwQV.qlfrs EMBEDDEDMAP embedded;
 create property HPwQV.oid long;
+create property HPwQV.odeleted boolean;
 create property HPwQV.iid long;
 create property HPwQV.sid string;
 alter property HPwQV.val MANDATORY true;
@@ -103,7 +110,7 @@ create index HPwQVIidValIdx on HPwQV (iid, val, oid) notunique;
 create index HPwQVIidIdx on HPwQV (iid, oid) notunique;
 
 -- "Item X has timestamp value Z for Property Y" relationships
-create class HPwTV extends E;
+create class HPwTV extends Claim;
 create property HPwTV.out LINK Item;
 create property HPwTV.in LINK Property;
 create property HPwTV.val long;
@@ -111,6 +118,7 @@ create property HPwTV.rank short;
 create property HPwTV.best short;
 create property HPwTV.qlfrs EMBEDDEDMAP embedded;
 create property HPwTV.oid long;
+create property HPwTV.odeleted boolean;
 create property HPwTV.iid long;
 create property HPwTV.sid string;
 alter property HPwTV.val MANDATORY true;
@@ -124,7 +132,7 @@ create index HPwTVIidValIdx on HPwTV (iid, val, oid) notunique;
 create index HPwTVIidIdx on HPwTV (iid, oid) notunique;
 
 -- "Item X has string value Z for Property Y" relationships
-create class HPwSV extends E;
+create class HPwSV extends Claim;
 create property HPwSV.out LINK Item;
 create property HPwSV.in LINK Property;
 create property HPwSV.val string;
@@ -132,6 +140,7 @@ create property HPwSV.rank short;
 create property HPwSV.best short;
 create property HPwSV.qlfrs EMBEDDEDMAP embedded;
 create property HPwSV.oid long;
+create property HPwSV.odeleted boolean;
 create property HPwSV.iid long;
 create property HPwSV.sid string;
 alter property HPwSV.val MANDATORY true;
@@ -145,7 +154,7 @@ create index HPwSVIidValIdx on HPwSV (iid, val) notunique_hash_index;
 create index HPwSVIidIdx on HPwSV (iid, oid) notunique;
 
 -- "Item X has coordinate value Z for Property Y" relationships
-create class HPwCV extends E;
+create class HPwCV extends Claim;
 create property HPwCV.out LINK Item;
 create property HPwCV.in LINK Property;
 create property HPwCV.lat double;
@@ -154,6 +163,7 @@ create property HPwCV.rank short;
 create property HPwCV.best short;
 create property HPwCV.qlfrs EMBEDDEDMAP embedded;
 create property HPwCV.oid long;
+create property HPwCV.odeleted boolean;
 create property HPwCV.iid long;
 create property HPwCV.sid string;
 alter property HPwCV.lat MANDATORY true;
@@ -168,7 +178,7 @@ create index HPwCVLocGeoIdx on HPwCV (lat, lon) spatial engine LUCENE;
 create index HPwCVIidIdx on HPwCV (iid, oid) notunique;
 
 -- "Item X has an Item value Z for Property Y" relationships
-create class HPwIV extends E;
+create class HPwIV extends Claim;
 create property HPwIV.out LINK Item;
 create property HPwIV.in LINK Property;
 create property HPwIV.val long;
@@ -176,6 +186,7 @@ create property HPwIV.rank short;
 create property HPwIV.best short;
 create property HPwIV.qlfrs EMBEDDEDMAP embedded;
 create property HPwIV.oid long;
+create property HPwIV.odeleted boolean;
 create property HPwIV.iid long;
 create property HPwIV.sid string;
 alter property HPwIV.val MANDATORY true;
@@ -188,7 +199,7 @@ alter property HPwIV.sid MANDATORY true;
 create index HPwIVIidIdx on HPwIV (iid, oid) notunique;
 
 -- "Item X uses Item Z as value of Property Y" relationships
-create class HIaPV extends E;
+create class HIaPV extends Claim;
 create property HIaPV.out LINK Item;
 create property HIaPV.in LINK Item;
 create property HIaPV.pid long;
@@ -196,6 +207,7 @@ create property HIaPV.rank short;
 create property HIaPV.best short;
 create property HIaPV.qlfrs EMBEDDEDMAP embedded;
 create property HIaPV.oid long;
+create property HIaPV.odeleted boolean;
 create property HIaPV.iid long;
 create property HIaPV.sid string;
 alter property HIaPV.pid MANDATORY true;

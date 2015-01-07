@@ -389,6 +389,7 @@ class WdqUpdater {
 					$edge['qlfrs'] = isset( $mainSnak['qlfrs'] )
 						? (object)$mainSnak['qlfrs']
 						: (object)array();
+					$edge['odeleted'] = !empty( $entity['deleted'] ) ? true : null;
 					$newEdgeSids[$edge['class'] . ':' . $edge['sid']] = 1;
 				}
 				unset( $edge );
@@ -581,7 +582,11 @@ class WdqUpdater {
 			$orClause[] = "id='$id'";
 		}
 		$orClause = implode( ' OR ', $orClause );
-		$this->tryCommand( "update $class set deleted=1 where ($orClause)" );
+
+		$this->tryCommand( array(
+			"update $class set deleted=true where ($orClause)",
+			"update (select outE() from Item where ($orClause)) set odeleted=true"
+		) );
 	}
 
 	/**
@@ -598,7 +603,11 @@ class WdqUpdater {
 			$orClause[] = "id='$id'";
 		}
 		$orClause = implode( ' OR ', $orClause );
-		$this->tryCommand( "update $class set deleted=NULL where ($orClause)" );
+
+		$this->tryCommand( array(
+			"update $class set deleted=NULL where ($orClause)",
+			"update (select outE() from Item where ($orClause)) set odeleted=NULL"
+		) );
 	}
 
 	/**

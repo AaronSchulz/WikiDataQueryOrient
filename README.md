@@ -31,7 +31,7 @@ Importing data
 1) Import live vertexes:
 	php importDump.php --user root --password root --method=insert --dump <dump path> --posdir=F:/importer/pos
 
-2) Import sub vertexes:
+2) Import stub vertexes:
 	php createStubEntities.php --user root --password root --posdir=F:/importer/pos
 
 3) Import edges:
