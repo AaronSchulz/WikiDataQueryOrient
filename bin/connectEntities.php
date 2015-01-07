@@ -12,14 +12,13 @@ ini_set( 'memory_limit', '512M' );
 function iterateItems( WdqUpdater $updater, $bSize, $posFile, callable $callback ) {
 	# Pick up from any prior position
 	if ( $posFile && is_file( $posFile ) ) {
-		$after = (int) trim( file_get_contents( $posFile ) ); // entity ID
-		print( "'$posFile' last position was '$after'; resuming.\n" );
+		$pos = (int) trim( file_get_contents( $posFile ) ); // entity ID
+		print( "'$posFile' last position was '$pos'; resuming.\n" );
 	} else {
-		$after = 0;
+		$pos = 0;
 	}
 
 	$n = 0;
-	$pos = 0;
 	$firstBatch = true;
 	$lastTime = microtime( true );
 	do {
