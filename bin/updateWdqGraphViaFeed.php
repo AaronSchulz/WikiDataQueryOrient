@@ -49,24 +49,19 @@ function main() {
 	// page restores: log entry at target
 
 	// @note: if "rclimit" is too high, the text query afterwards will be missing
-	// items due to the hard-coded server-size limit of 20 revisions per query.
-	$baseQuery = array(
+	// items due to the wbgetentities server-size limit of 50 entities per query.
+	$baseRCQuery = array(
 		'action' => 'query', 'list' => 'recentchanges',
 		'rcnamespace' => '0|120', 'rctype' => 'log|edit|new',
-		'rcdir' => 'newer', 'rclimit' => 20, 'rcprop' => 'loginfo|ids|title|timestamp',
+		'rcdir' => 'newer', 'rclimit' => 50, 'rcprop' => 'loginfo|ids|title|timestamp',
 		'format' => 'json', 'continue' => '', 'rcstart' => $sTimestamp
 	);
 
-	$rccontinue = null;
 	$lastTimestamp = $sTimestamp;
 	while ( true ) {
-		$hasContinue = isset( $baseQuery['rccontinue'] );
-		if ( $rccontinue ) {
-			$baseQuery['rccontinue'] = $rccontinue;
-		}
-		$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => $baseQuery );
+		$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => $baseRCQuery );
 
-		print( "Requesting changes from " . API_QUERY_URL . "...($rccontinue)\n" );
+		print( "Requesting changes from " . API_QUERY_URL . "...($lastTimestamp)\n" );
 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
 		try {
 			$result = decodeJSON( $rbody );
@@ -75,69 +70,68 @@ function main() {
 			sleep( 5 );
 			continue;
 		}
-
-		if ( isset( $result['continue']['rccontinue'] ) ) {
-			$rccontinue = $result['continue']['rccontinue'];
-		}
-
 		$changeCount = count( $result['query']['recentchanges'] );
-		$itemsDeleted = array(); // list of Item IDs
-		$itemsRestored = array(); // list of Item IDs
-		$propertiesDeleted = array(); // list of Property IDs
-		$propertiesRestored = array(); // list of Property IDs
-		$newRevIDs = array(); // list rev IDs
+
+		$rccontinue = isset( $result['continue']['rccontinue'] )
+			? $result['continue']['rccontinue']
+			: null;
+
+		$entitiesChanged = array(); // map of (identifier => id)
+		$itemsDeleted = array(); // map of (Item ID => 1)
+		$propsDeleted = array(); // map of (Property ID => 1)
+		$itemsRestored = array(); // map of (Item ID => 1)
+		$propsRestored = array(); // map of (Property ID => 1)
 		foreach ( $result['query']['recentchanges'] as $change ) {
 			$lastTimestamp = $change['timestamp'];
+
+			$id = 0;
+			if ( $change['ns'] == 0 ) { // Item
+				$id = WdqUtils::wdcToLong( $change['title'] );
+			} elseif ( $change['ns'] == 120 ) { // Property
+				list( $nstext, $key ) = explode( ':', $change['title'], 2 );
+				$id = WdqUtils::wdcToLong( $key );
+			}
+
 			$logTypeAction = ( $change['type'] === 'log' )
 				? "{$change['logtype']}/{$change['logaction']}"
 				: null;
-			if ( $change['type'] === 'new' ) {
-				print( "{$change['timestamp']} New page: {$change['title']}\n" );
-				$newRevIDs[] = $change['revid'];
-			} elseif ( $change['type'] === 'edit' ) {
-				print( "{$change['timestamp']} Modified page: {$change['title']}\n" );
-				$newRevIDs[] = $change['revid'];
-			} elseif ( $logTypeAction === 'delete/delete' ) {
-				print( "{$change['timestamp']} Deleted page: {$change['title']}\n" );
+
+			if ( $change['type'] === 'new' || $change['type'] === 'edit' ) {
+				print( "{$change['timestamp']} {$change['type']}: {$change['title']}\n" );
 				if ( $change['ns'] == 0 ) { // Item
-					$id = WdqUtils::wdcToLong( $change['title'] );
-					$itemsDeleted[] = $id;
+					$entitiesChanged["Q$id"] = $id;
+					unset( $itemsDeleted[$id] );
 				} elseif ( $change['ns'] == 120 ) { // Property
-					list( $nstext, $key ) = explode( ':', $change['title'], 2 );
-					$id = WdqUtils::wdcToLong( $key );
-					$propertiesDeleted[] = $id;
+					$entitiesChanged["P$id"] = $id;
+					unset( $propsDeleted[$id] );
+				}
+			} elseif ( in_array( $logTypeAction,
+				array( 'delete/delete', 'move/move', 'move-move_redir' ) )
+			) {
+				print( "{$change['timestamp']} $logTypeAction: {$change['title']}\n" );
+				if ( $change['ns'] == 0 ) { // Item
+					$itemsDeleted[$id] = 1;
+					unset( $itemsRestored[$id] );
+				} elseif ( $change['ns'] == 120 ) { // Property
+					$propsDeleted[$id] = 1;
+					unset( $propsRestored[$id] );
 				}
 			} elseif ( $logTypeAction === 'delete/restore' ) {
-				// @TODO: get current version and update vertexes
 				print( "{$change['timestamp']} Restored page: {$change['title']}\n" );
 				if ( $change['ns'] == 0 ) { // Item
-					$id = WdqUtils::wdcToLong( $change['title'] );
-					$itemsRestored[] = $id;
+					$itemsRestored[$id] = 1;
+					$entitiesChanged["Q$id"] = $id;
 				} elseif ( $change['ns'] == 120 ) { // Property
-					list( $nstext, $key ) = explode( ':', $change['title'], 2 );
-					$id = WdqUtils::wdcToLong( $key );
-					$propertiesRestored[] = $id;
-				}
-			} elseif ( in_array( $logTypeAction, array( 'move/move', 'move-move_redir' ) ) ) {
-				print( "{$change['timestamp']} Moved page: {$change['title']}\n" );
-				if ( $change['ns'] == 0 ) { // Item
-					$id = WdqUtils::wdcToLong( $change['title'] );
-					$itemsDeleted[] = $id;
-				} elseif ( $change['ns'] == 120 ) { // Property
-					list( $nstext, $key ) = explode( ':', $change['title'], 2 );
-					$id = WdqUtils::wdcToLong( $key );
-					$propertiesDeleted[] = $id;
+					$propsRestored[$id] = 1;
+					$entitiesChanged["P$id"] = $id;
 				}
 			}
 		}
 
-		// Useful when caught up, since continue is not returned by the API
-		$baseQuery['rcstart'] = $lastTimestamp;
-
-		$req = array(
-			'method' => 'GET', 'url' => API_QUERY_URL, 'query' => array(
-			'action' => 'query', 'revids' => implode( '|', $newRevIDs ),
-			'prop' => 'revisions', 'rvprop' => 'ids|content', 'format' => 'json'
+		$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => array(
+			'action' => 'wbgetentities', 'ids' => implode( '|', array_keys( $entitiesChanged ) ),
+			'redirects' => 'no', 'props' => 'info|sitelinks|labels|claims|datatype',
+			'format' => 'json'
 		) );
 
 		print( "Requesting corresponding revision content from " . API_QUERY_URL . "...\n" );
@@ -150,49 +144,49 @@ function main() {
 			continue;
 		}
 
-		$applyChanges = array(); // map of (rev ID => json)
-		foreach ( $result['query']['pages'] as $pageId => $pageInfo ) {
-			$change = $pageInfo['revisions'][0];
-			$applyChanges[$change['revid']] = $change['*'];
-		}
-		$applyChangesInOrder = array(); // $applyChanges with order matching $newRevIDs
-		foreach ( $newRevIDs as $revId ) {
-			if ( isset( $applyChanges[$revId] ) ) {
-				$applyChangesInOrder[$revId] = $applyChanges[$revId];
+		// Build list entities to be created/updated
+		$newItemStubs = array(); // list of IDs
+		$newPropertyStubs = array(); // list of IDs
+		$entitiesUpsert = array();
+		foreach ( $entitiesChanged as $identifier => $id ) {
+			if ( !isset( $result['entities'][$identifier]['missing'] ) ) {
+				$entitiesUpsert[] = $result['entities'][$identifier];
+			} elseif ( $identifier[0] === 'Q' ) {
+				$newItemStubs[] = $id;
+			} elseif ( $identifier[0] === 'P' ) {
+				$newPropertyStubs[] = $id;
 			}
 		}
 
-		$n = count( $applyChangesInOrder );
-		print( "Updating graph [$n change(s)]...\n" );
-		foreach ( $applyChangesInOrder as $json ) {
-			$entity = decodeJSON( $json );
-			if ( isset( $entity['entity'] ) && isset( $entity['redirect'] ) ) {
-				print( "Ignored entity redirect: $json\n" );
-			} elseif ( $entity['type'] === 'item' ) {
-				$updater->importEntities( array( $entity ), 'upsert' );
+		print( "Updating graph [" . count( $entitiesUpsert ) . " change(s)]...\n" );
+		// (a) Make the stubs for missing entities first...
+		$updater->createDeletedItemStubs( $newItemStubs );
+		$updater->createDeletedPropertyStubs( $newPropertyStubs );
+		// (b) Create/update entities...
+		$updater->importEntities( $entitiesUpsert, 'upsert' );
+		// (c) Connect the entities with edges...
+		foreach ( $entitiesUpsert as &$entity ) {
+			// Convert claims to DB form in order to call makeItemEdges()
+			if ( isset( $entity['claims'] ) ) {
 				$entity['claims'] = $updater->getSimpliedClaims( $entity['claims'] );
-				$updater->makeItemEdges( array( $entity ), 'rebuild' );
-			} elseif ( $entity['type'] === 'property' ) {
-				$updater->importEntities( array( $entity ), 'upsert' );
-			} else {
-				throw new Exception( "Got unkown item '$json'" );
 			}
 		}
-		if ( $itemsDeleted ) {
-			$updater->deleteEntities( 'Item', $itemsDeleted );
-		}
-		if ( $propertiesDeleted ) {
-			$updater->deleteEntities( 'Property', $propertiesDeleted );
-		}
-		if ( $itemsRestored ) {
-			$updater->restoreEntities( 'Item', $itemsRestored );
-		}
-		if ( $propertiesRestored ) {
-			$updater->restoreEntities( 'Property', $propertiesRestored );
+		$updater->makeItemEdges( $entitiesUpsert, 'rebuild' );
+		// (d) Apply any deletions/restorations (effects vertexes and edges)...
+		$updater->deleteEntities( 'Item', array_keys( $itemsDeleted ) );
+		$updater->deleteEntities( 'Property', array_keys( $propsDeleted ) );
+		$updater->restoreEntities( 'Item', array_keys( $itemsRestored ) );
+		$updater->restoreEntities( 'Property', array_keys( $propsRestored ) );
+
+		// Safe to advance, so update rccontinue/rcstart for next time
+		if ( $rccontinue ) {
+			$baseRCQuery['rccontinue'] = $rccontinue;
+			// Useful when caught up, since continue is not returned by the API
+			$baseRCQuery['rcstart'] = $lastTimestamp;
 		}
 
 		// Update the replication position
-		if ( $changeCount > 0 && $hasContinue ) {
+		if ( $changeCount > 0 ) {
 			$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
 			$updater->tryCommand(
 				"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
@@ -220,7 +214,8 @@ function getCurrentRCPosition( WdqUpdater $updater ) {
 function determineRCPosition( WdqUpdater $updater, MultiHttpClient $http ) {
 	$cTimestamp = null;
 
-	$res = $updater->tryQuery( "SELECT id FROM Item ORDER BY id DESC LIMIT 100" );
+	$res = $updater->tryQuery(
+		"SELECT id FROM Item WHERE stub IS NULL ORDER BY id DESC LIMIT 100" );
 
 	foreach ( $res as $record ) {
 		$query = array(

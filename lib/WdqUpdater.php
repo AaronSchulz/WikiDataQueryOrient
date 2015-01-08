@@ -82,7 +82,7 @@ class WdqUpdater {
 			} elseif ( $entity['type'] === 'property' ) {
 				$queries[] = $this->importPropertyVertexSQL( $entity, $opMethod );
 			} else {
-				trigger_error( "Unrecognized entity of type '{$entity['type']}'." );
+				throw new Exception( "Unrecognized type:\n" . json_encode( $entity ) );
 			}
 		}
 
@@ -283,10 +283,10 @@ class WdqUpdater {
 	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
 	 *
 	 * @param array $entities List of unique items from the DB (simplified form)
-	 * @param string $method (rebuild/bulk)
+	 * @param string $method (rebuild/bulk_init)
 	 * @param array|null $classes Only do certain edge classes
 	 */
-	public function makeItemEdges( array $entities, $method, array $classes = null ) {
+	public function makeItemEdges( array $entities, $method = 'rebuild', array $classes = null ) {
 		$queries = array();
 
 		$itemRIDs = array();
@@ -585,7 +585,7 @@ class WdqUpdater {
 
 		$this->tryCommand( array(
 			"update $class set deleted=true where ($orClause)",
-			"update (select outE() from Item where ($orClause)) set odeleted=true"
+			"update (select expand(outE()) from Item where ($orClause)) set odeleted=true"
 		) );
 	}
 
@@ -606,7 +606,7 @@ class WdqUpdater {
 
 		$this->tryCommand( array(
 			"update $class set deleted=NULL where ($orClause)",
-			"update (select outE() from Item where ($orClause)) set odeleted=NULL"
+			"update (select expand(outE()) from Item where ($orClause)) set odeleted=NULL"
 		) );
 	}
 
