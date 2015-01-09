@@ -178,10 +178,13 @@ class WdqUpdater {
 				$sClaim = $this->getSimpleSnak( $statement['mainsnak'] );
 				$sClaim['rank'] = self::$rankMap[$statement['rank']];
 				$sClaim['best'] = self::$rankMap[$statement['rank']] >= $maxRank ? 1 : 0;
+				$sClaim['sid'] = $statement['id'];
 				if ( isset( $statement['qualifiers'] ) ) {
 					$sClaim['qlfrs'] = $this->getSimpleQualifiers( $statement['qualifiers'] );
 				}
-				$sClaim['sid'] = $statement['id'];
+				if ( isset( $statement['references'] ) ) {
+					$sClaim['refs'] = $this->getSimpleReferences( $statement['references'] );
+				}
 
 				$sClaims[$pId][] = $sClaim;
 			}
@@ -237,20 +240,44 @@ class WdqUpdater {
 	 * Get a streamlined qualifier array
 	 *
 	 * @param array $qualifiers
-	 * @return type
+	 * @return array
 	 */
 	protected function getSimpleQualifiers( array $qualifiers ) {
 		$simpeQlfrs = array();
 
-		foreach ( $qualifiers as $qPropertyId => $qSnaks ) {
-			$qPId = (string) WdqUtils::wdcToLong( $qPropertyId );
-			$simpeQlfrs[$qPId] = array();
-			foreach ( $qSnaks as $qSnak ) {
-				$simpeQlfrs[$qPId][] = $this->getSimpleSnak( $qSnak );
+		foreach ( $qualifiers as $propertyId => $snaks ) {
+			$pId = (string) WdqUtils::wdcToLong( $propertyId );
+			$simpeQlfrs[$pId] = array();
+			foreach ( $snaks as $snak ) {
+				$simpeQlfrs[$pId][] = $this->getSimpleSnak( $snak );
 			}
 		}
 
 		return $simpeQlfrs;
+	}
+
+	/**
+	 * Get a streamlined references array
+	 *
+	 * @param array $references
+	 * @return array
+	 */
+	protected function getSimpleReferences( array $references ) {
+		$simpeRefs = array();
+
+		foreach ( $references as $reference ) {
+			$refEntry = array();
+			foreach ( $reference['snaks'] as $propertyId => $snaks ) {
+				$pId = (string) WdqUtils::wdcToLong( $propertyId );
+				$refEntry[$pId] = array();
+				foreach ( $snaks as $snak ) {
+					$refEntry[$pId][] = $this->getSimpleSnak( $snak );
+				}
+			}
+			$simpeRefs[] = $refEntry;
+		}
+
+		return $simpeRefs;
 	}
 
 	/**
@@ -400,6 +427,9 @@ class WdqUpdater {
 					$edge['sid'] = $mainSnak['sid'];
 					$edge['qlfrs'] = isset( $mainSnak['qlfrs'] )
 						? (object)$mainSnak['qlfrs']
+						: (object)array();
+					$edge['refs'] = isset( $mainSnak['refs'] )
+						? (object)$mainSnak['refs']
 						: (object)array();
 					$edge['odeleted'] = !empty( $entity['deleted'] ) ? true : null;
 					$newEdgeSids[$edge['class'] . ':' . $edge['sid']] = 1;
