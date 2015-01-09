@@ -60,6 +60,7 @@ function main() {
 	$updater->buildPropertyRIDCache();
 
 	$lastTimestamp = $sTimestamp;
+	$lastRcID = 0;
 	while ( true ) {
 		$batchStartTime = microtime( true );
 
@@ -86,7 +87,12 @@ function main() {
 		$itemsRestored = array(); // map of (Item ID => 1)
 		$propsRestored = array(); // map of (Property ID => 1)
 		foreach ( $result['query']['recentchanges'] as $change ) {
+			if ( $change['timestamp'] === $lastTimestamp && $change['rcid'] <= $lastRcID ) {
+				--$changeCount;
+				continue; // this happens on final pages where the API gives no continue=
+			}
 			$lastTimestamp = $change['timestamp'];
+			$lastRcID = $change['rcid'];
 
 			$id = 0;
 			if ( $change['ns'] == 0 ) { // Item
@@ -130,6 +136,12 @@ function main() {
 					$entitiesChanged["P$id"] = $id;
 				}
 			}
+		}
+
+		if ( $changeCount == 0 ) {
+			print( "No changes found...\n" );
+			sleep( 1 );
+			continue;
 		}
 
 		$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => array(
@@ -185,21 +197,16 @@ function main() {
 		// Safe to advance, so update rccontinue/rcstart for next time
 		if ( $rccontinue ) {
 			$baseRCQuery['rccontinue'] = $rccontinue;
-			// Useful when caught up, since continue is not returned by the API
-			$baseRCQuery['rcstart'] = $lastTimestamp;
 		}
+		// Useful when caught up, since continue is not returned by the API
+		$baseRCQuery['rcstart'] = $lastTimestamp;
 
 		// Update the replication position
-		if ( $changeCount > 0 ) {
-			$rate = round( $changeCount / ( microtime( true ) - $batchStartTime ), 3 );
-			$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
-			$updater->tryCommand(
-				"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
-			print( "Updated replication position to $lastTimestamp ($rate entities/sec).\n" );
-		} else {
-			print( "No changes found...\n" );
-			sleep( 5 );
-		}
+		$rate = round( $changeCount / ( microtime( true ) - $batchStartTime ), 3 );
+		$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
+		$updater->tryCommand(
+			"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
+		print( "Updated replication position to $lastTimestamp ($rate entities/sec).\n" );
 	}
 }
 
