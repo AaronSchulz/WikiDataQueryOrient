@@ -47,7 +47,7 @@ class WdqUpdater {
 	/**
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel/Primer
 	 *
-	 * @param array $entities
+	 * @param array $entities Later duplicates take precedence
 	 * @param string $method (insert/upsert)
 	 * @throws Exception
 	 */
@@ -57,22 +57,34 @@ class WdqUpdater {
 		}
 
 		if ( $method === 'upsert' ) {
-			$ids = array();
+			$iids = $pids = array();
 			foreach ( $entities as $entity ) {
-				$ids[] = WdqUtils::wdcToLong( $entity['id'] );
+				if ( $entity['type'] === 'item' ) {
+					$iids[] = WdqUtils::wdcToLong( $entity['id'] );
+				} else {
+					$pids[] = WdqUtils::wdcToLong( $entity['id'] );
+				}
 			}
-			$this->updateItemRIDCache( $ids );
+			$this->updateItemRIDCache( $iids );
+			$this->updatePropertyRIDCache( $pids );
 		}
 
 		$queries = array();
-		$willExists = array(); // map of (id => true)
+		$willExists = array(); // map of (type:id => true)
 		foreach ( $entities as $entity ) {
 			if ( $method === 'upsert' ) {
 				$id = WdqUtils::wdcToLong( $entity['id'] );
-				$opMethod = ( $this->iCache->has( $id ) || isset( $willExists[$id] ) )
-					? 'update'
-					: 'insert';
-				$willExists[$id] = true;
+				$key = $entity['type'] . ":$id";
+				if ( isset( $willExists[$key] ) ) {
+					$opMethod = 'update';
+				} elseif ( $entity['type'] === 'item' && $this->iCache->has( $id ) ) {
+					$opMethod = 'update';
+				} elseif ( $entity['type'] === 'property' && isset( $this->pCache[$id] ) ) {
+					$opMethod = 'update';
+				} else {
+					$opMethod = 'insert';
+				}
+				$willExists[$key] = true;
 			} else {
 				$opMethod = $method;
 			}
@@ -753,6 +765,28 @@ class WdqUpdater {
 		$res = $this->tryQuery( 'select from index:ProperyIdIdx', 10000 );
 		foreach ( $res as $record ) {
 			$this->pCache[(int)$record['key']] = $record['rid'];
+		}
+	}
+
+	/**
+	 * Build the P# => #RID cache map
+	 *
+	 * @param array $ids
+	 */
+	protected function updatePropertyRIDCache( array $ids ) {
+		$orClause = array();
+		foreach ( $ids as $id ) {
+			if ( !isset( $this->pCache[$id] ) ) {
+				$orClause[] = "id=$id";
+			}
+		}
+
+		if ( $orClause ) {
+			$orClause = implode( " OR ", $orClause );
+			$res = $this->tryQuery( "select id,@RID from Property where $orClause" );
+			foreach ( $res as $record ) {
+				$this->pCache[(int)$record['id']] = $record['RID'];
+			}
 		}
 	}
 

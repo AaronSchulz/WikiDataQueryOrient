@@ -57,8 +57,12 @@ function main() {
 		'format' => 'json', 'continue' => '', 'rcstart' => $sTimestamp
 	);
 
+	$updater->buildPropertyRIDCache();
+
 	$lastTimestamp = $sTimestamp;
 	while ( true ) {
+		$batchStartTime = microtime( true );
+
 		$req = array( 'method' => 'GET', 'url' => API_QUERY_URL, 'query' => $baseRCQuery );
 
 		print( "Requesting changes from " . API_QUERY_URL . "...($lastTimestamp)\n" );
@@ -187,10 +191,11 @@ function main() {
 
 		// Update the replication position
 		if ( $changeCount > 0 ) {
+			$rate = round( $changeCount / ( microtime( true ) - $batchStartTime ), 3 );
 			$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
 			$updater->tryCommand(
 				"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
-			print( "Updated replication position to $lastTimestamp.\n" );
+			print( "Updated replication position to $lastTimestamp ($rate entities/sec).\n" );
 		} else {
 			print( "No changes found...\n" );
 			sleep( 5 );
