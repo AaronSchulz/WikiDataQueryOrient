@@ -476,6 +476,11 @@ class WdqUpdater {
 					}
 				}
 
+				if ( !$dvEdge['odeleted'] ) {
+					// https://github.com/orientechnologies/orientdb/issues/3365
+					unset( $dvEdge['odeleted'] );
+				}
+
 				$sql = "create edge $class from $from to $to content " .
 					WdqUtils::toJSON( $dvEdge );
 				$queries[] = $sql;
