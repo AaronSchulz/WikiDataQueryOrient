@@ -169,22 +169,19 @@ function main() {
 		// Track entities to be created this batch
 		$bEntities = array( 'Q' => array(), 'P' => array() ); // id lists
 		// Build list entities to be created/updated
-		$entityStubs = array( 'Q' => array(), 'P' => array() ); // id lists
 		$entitiesUpsert = array(); // list of maps
 		foreach ( $entitiesChanged as $identifier => $id ) {
+			// Entities are missing if they are redirects or deleted since the RC query
 			if ( !isset( $result['entities'][$identifier]['missing'] ) ) {
 				$entitiesUpsert[] = $result['entities'][$identifier];
-			} else {
-				// Use stubs for items that were in RC but not found
-				$entityStubs[$identifier[0]][] = $id;
+				$bEntities[$identifier[0]][] = $id;
 			}
-
-			$bEntities[$identifier[0]][] = $id;
 		}
 		// Get IDs to make stubs for to fill the gaps.
 		// Deletions remove all RC entries for the title, making RC a mutable log.
 		// Although new entities never reference entities from the future, they might
 		// reference entities created prior that are in the RC gaps due to later deletions.
+		$entityStubs = array( 'Q' => array(), 'P' => array() ); // id lists
 		if ( $bEntities['Q'] && max( $bEntities['Q'] ) > $maxItemId ) {
 			$gaps = array_diff( range( $maxItemId + 1, max( $bEntities['Q'] ) ), $bEntities['Q'] );
 			print( "Detected " . count( $gaps ) . " item IDs in gaps\n" );
