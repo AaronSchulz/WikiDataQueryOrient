@@ -41,6 +41,12 @@ function main() {
 		die( "$sTimestamp is near (or over) 90 days ago. Use a newer JSON dump." );
 	}
 
+	// Get max IDs for stub creation
+	$maxItemId = getMaxEntityId( $updater, 'Item' );
+	$maxPropId = getMaxEntityId( $updater, 'Property' );
+
+	print( "Status=(timestamp:$sTimestamp,maxitem:$maxItemId,maxprop:$maxPropId)\n" );
+
 	// RC tables handles:
 	// new pages: 'new' entry
 	// page edits: 'edit' entry
@@ -160,24 +166,40 @@ function main() {
 			continue;
 		}
 
+		// Track entities to be created this batch
+		$bEntities = array( 'Q' => array(), 'P' => array() ); // id lists
 		// Build list entities to be created/updated
-		$newItemStubs = array(); // list of IDs
-		$newPropertyStubs = array(); // list of IDs
-		$entitiesUpsert = array();
+		$entityStubs = array( 'Q' => array(), 'P' => array() ); // id lists
+		$entitiesUpsert = array(); // list of maps
 		foreach ( $entitiesChanged as $identifier => $id ) {
 			if ( !isset( $result['entities'][$identifier]['missing'] ) ) {
 				$entitiesUpsert[] = $result['entities'][$identifier];
-			} elseif ( $identifier[0] === 'Q' ) {
-				$newItemStubs[] = $id;
-			} elseif ( $identifier[0] === 'P' ) {
-				$newPropertyStubs[] = $id;
+			} else {
+				// Use stubs for items that were in RC but not found
+				$entityStubs[$identifier[0]][] = $id;
 			}
+
+			$bEntities[$identifier[0]][] = $id;
+		}
+		// Get IDs to make stubs for to fill the gaps.
+		// Deletions remove all RC entries for the title, making RC a mutable log.
+		// Although new entities never reference entities from the future, they might
+		// reference entities created prior that are in the RC gaps due to later deletions.
+		if ( $bEntities['Q'] && max( $bEntities['Q'] ) > $maxItemId ) {
+			$gaps = array_diff( range( $maxItemId + 1, max( $bEntities['Q'] ) ), $bEntities['Q'] );
+			print( "Detected " . count( $gaps ) . " item IDs in gaps\n" );
+			$entityStubs['Q'] = array_merge( $entityStubs['Q'], $gaps );
+		}
+		if ( $bEntities['P'] && max( $bEntities['P'] ) > $maxPropId ) {
+			$gaps = array_diff( range( $maxPropId + 1, max( $bEntities['P'] ) ), $bEntities['P'] );
+			print( "Detected " . count( $gaps ) . " property IDs in gaps\n" );
+			$entityStubs['P'] = array_merge( $entityStubs['P'], $gaps );
 		}
 
 		print( "Updating graph [" . count( $entitiesUpsert ) . " change(s)]...\n" );
 		// (a) Make the stubs for missing entities first...
-		$updater->createDeletedItemStubs( $newItemStubs );
-		$updater->createDeletedPropertyStubs( $newPropertyStubs );
+		$updater->createDeletedItemStubs( $entityStubs['Q'] );
+		$updater->createDeletedPropertyStubs( $entityStubs['P'] );
 		// (b) Create/update entities...
 		$updater->importEntities( $entitiesUpsert, 'upsert' );
 		// (c) Connect the entities with edges...
@@ -194,7 +216,10 @@ function main() {
 		$updater->restoreEntities( 'Item', array_keys( $itemsRestored ) );
 		$updater->restoreEntities( 'Property', array_keys( $propsRestored ) );
 
-		// Safe to advance, so update rccontinue/rcstart for next time
+		// Safe to advance...
+		$maxItemId = $bEntities['Q'] ? max( $maxItemId, max( $bEntities['Q'] ) ) : $maxItemId;
+		$maxPropId = $bEntities['P'] ? max( $maxPropId, max( $bEntities['P'] ) ) : $maxPropId;
+		// Update rccontinue/rcstart for next time
 		if ( $rccontinue ) {
 			$baseRCQuery['rccontinue'] = $rccontinue;
 		}
@@ -204,18 +229,27 @@ function main() {
 		// Update the replication position
 		$rate = round( $changeCount / ( microtime( true ) - $batchStartTime ), 3 );
 		$row = array( 'rc_timestamp' => $lastTimestamp, 'name' => 'LastRCInfo' );
-		$updater->tryCommand(
-			"UPDATE DBStatus CONTENT " . json_encode( $row ) . " WHERE name='LastRCInfo'" );
+		$updater->tryCommand( "UPDATE DBStatus CONTENT " .
+			json_encode( $row ) . " WHERE name='LastRCInfo'" );
 		print( "Updated replication position to $lastTimestamp ($rate entities/sec).\n" );
 	}
+}
+
+function getMaxEntityId( WdqUpdater $updater, $class ) {
+	$id = 0;
+
+	$res = $updater->tryQuery( "SELECT id FROM $class ORDER BY id DESC LIMIT 1" );
+	foreach ( $res as $record ) {
+		$id = $record['id'];
+	}
+
+	return $id;
 }
 
 function getCurrentRCPosition( WdqUpdater $updater ) {
 	$cTimestamp = null;
 
-	$res = $updater->tryQuery(
-		"SELECT rc_id,rc_timestamp FROM DBStatus WHERE name='LastRCInfo'" );
-
+	$res = $updater->tryQuery( "SELECT rc_timestamp FROM DBStatus WHERE name='LastRCInfo'" );
 	foreach ( $res as $record ) {
 		$cTimestamp = $record['rc_timestamp'];
 	}

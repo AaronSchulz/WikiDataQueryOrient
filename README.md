@@ -29,13 +29,13 @@ Importing data
 --------------
 
 1) Import live vertexes:
-	php importDump.php --user root --password root --method=insert --dump <dump path> --posdir=F:/importer/pos
+	php importDump.php --user admin --password admin --method=insert --dump <dump path> --posdir=F:/importer/pos
 
 2) Import stub vertexes:
-	php createStubEntities.php --user root --password root --posdir=F:/importer/pos
+	php createStubEntities.php --user admin --password admin --posdir=F:/importer/pos
 
 3) Import edges:
-	php connectEntities.php --user root --password root --method=bulk_init --posdir=F:/importer/pos
+	php connectEntities.php --user admin --password admin --method=bulk_init --posdir=F:/importer/pos
 
 Updating via the API
 --------------
