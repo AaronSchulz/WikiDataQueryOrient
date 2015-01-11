@@ -246,7 +246,7 @@ class WdqUpdater {
 		$simpeQlfrs = array();
 
 		foreach ( $qualifiers as $propertyId => $snaks ) {
-			$pId = (string) WdqUtils::wdcToLong( $propertyId );
+			$pId = WdqUtils::wdcToLong( $propertyId );
 			$simpeQlfrs[$pId] = array();
 			foreach ( $snaks as $snak ) {
 				$simpeQlfrs[$pId][] = $this->getSimpleSnak( $snak );
@@ -268,7 +268,7 @@ class WdqUpdater {
 		foreach ( $references as $reference ) {
 			$refEntry = array();
 			foreach ( $reference['snaks'] as $propertyId => $snaks ) {
-				$pId = (string) WdqUtils::wdcToLong( $propertyId );
+				$pId = WdqUtils::wdcToLong( $propertyId );
 				$refEntry[$pId] = array();
 				foreach ( $snaks as $snak ) {
 					$refEntry[$pId][] = $this->getSimpleSnak( $snak );
@@ -429,7 +429,7 @@ class WdqUpdater {
 						? (object)$mainSnak['qlfrs']
 						: (object)array();
 					$edge['refs'] = isset( $mainSnak['refs'] )
-						? (object)$mainSnak['refs']
+						? (object)$this->collapseReferences( $mainSnak['refs'] )
 						: (object)array();
 					$edge['odeleted'] = !empty( $entity['deleted'] ) ? true : null;
 					$newEdgeSids[$edge['class'] . ':' . $edge['sid']] = 1;
@@ -566,6 +566,26 @@ class WdqUpdater {
 		}
 
 		return $dvEdges;
+	}
+
+	/**
+	 * Collapse references from (index => P => statement) to (P => statement)
+	 *
+	 * @param array $refs
+	 * @return array
+	 */
+	protected function collapseReferences( array $refs ) {
+		$cRefs = array();
+
+		foreach ( $refs as $ref ) {
+			foreach ( $ref as $propertyId => $snaks ) {
+				$cRefs[$propertyId] = isset( $cRefs[$propertyId] )
+					? array_merge( $cRefs[$propertyId], $snaks )
+					: $snaks;
+			}
+		}
+
+		return $cRefs;
 	}
 
 	/**

@@ -22,7 +22,7 @@
  *		$INTERSECT_AB = INTERSECT($ITEMS_A,$ITEMS_B)
  *		$SET_A = {HPwTV[X:D1 to D2] ASC RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y;rank=best]) LIMIT(100)}
  *		$SET_B = {HPwCV[X:AROUND A B C,AROUND A B C] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
- *		$SET_C = {HPwSV[X:"cat"] RANK(best) QUALIFY(HPwV[X:Y]) WHERE(HPwV[X:Y])}
+ *		$SET_C = {HPwSV[X:"cat"] RANK(best) REFERENCE(HPwV[X:Y]) WHERE(HPwV[X:Y])}
  *		$STUFF = {items[2,425,62,23]}
  *		$WLINK = {HPwIV[X:A] WHERE(link[X,Y])}
  * )
@@ -235,6 +235,8 @@ class WdqQueryParser {
 
 		// Qualifier conditions normally applied in edge class WHERE
 		$qualiferPrefix = 'qlfrs';
+		// Reference conditions normally applied in edge class WHERE
+		$referencePrefix = 'refs';
 
 		$m = array();
 		$float = self::RE_FLOAT;
@@ -301,6 +303,7 @@ class WdqQueryParser {
 			$inClause = self::sqlIN( 'id', $iIds );
 			$sql = "SELECT FROM Item WHERE $inClause AND @ICOND@";
 			$qualiferPrefix = null; // makes no sense
+			$referencePrefix = null; // same
 		} elseif ( preg_match( "/^linkedto\[((?:\\$\d+,?)+)\]\s*/", $rest, $m ) ) {
 			$valIds = explode( ',', $m[1] );
 			$or = array();
@@ -310,6 +313,7 @@ class WdqQueryParser {
 			$or = self::sqlOR( $or );
 			$sql = "SELECT FROM Item WHERE $or AND @ICOND@";
 			$qualiferPrefix = null; // makes no sense
+			$referencePrefix = null; // same
 		// Case D: recursive item queries
 		} elseif ( preg_match(
 			"/^HPwIVWeb\[($dlist|$gvar)\](?:\s+OUT\[($dlist)\])?(?:\s+IN\[($dlist)\])?(?:\s+MAXDEPTH\((\d+)\))?\s*/", $rest, $m )
@@ -373,6 +377,7 @@ class WdqQueryParser {
 		// Default conditions
 		$rankCond = 'rank >= 0';
 		$qualifyCond = '';
+		$referenceCond = '';
 
 		$limit = 0;
 		$eClaimCond = '';
@@ -389,7 +394,14 @@ class WdqQueryParser {
 					throw new WdqParseException( "Index query does not support qualifiers: $s" );
 				}
 				$statement = self::consumePair( $rest, '()' );
-				$qualifyCond = '(' . self::parseFilters( $statement, $qualiferPrefix ) . ')';
+				$qualifyCond = self::parseFilters( $statement, $qualiferPrefix );
+			// Check if there is a REFERENCE condition
+			} elseif ( $token === 'REFERENCE' ) {
+				if ( $referencePrefix === null ) {
+					throw new WdqParseException( "Index query does not support references: $s" );
+				}
+				$statement = self::consumePair( $rest, '()' );
+				$referenceCond = self::parseFilters( $statement, $referencePrefix );
 			// Check if there is a WHERE condition
 			} elseif ( $token === 'WHERE' ) {
 				$statement = self::consumePair( $rest, '()' );
@@ -417,13 +429,13 @@ class WdqQueryParser {
 
 		// Apply edge filtering conditions for non-recursive queries
 		$edgeCond = implode( ' AND ', array_filter(
-			array( $rankCond, $qualifyCond, 'odeleted IS NULL', $eClaimCond ),
+			array( $rankCond, $qualifyCond, $referenceCond, 'odeleted IS NULL', $eClaimCond ),
 			'strlen'
 		) );
 		$sql = str_replace( '@ECOND@', $edgeCond, $sql );
 		// Apply edge filtering conditions for recursive queries (defer claim conditions)
 		$edgeCondTraverse = implode( ' AND ', array_filter(
-			array( $rankCond, $qualifyCond, 'odeleted IS NULL' ),
+			array( $rankCond, $qualifyCond, $referenceCond, 'odeleted IS NULL' ),
 			'strlen'
 		) );
 		$sql = str_replace( '@ETCOND@', $edgeCondTraverse, $sql );
@@ -482,7 +494,7 @@ class WdqQueryParser {
 			throw new WdqParseException( "Excess filter statements found: $rest" );
 		}
 
-		return $junction ? implode( " $junction ", $where ) : $where[0];
+		return $junction ? '(' . implode( " $junction ", $where ) . ')' : $where[0];
 	}
 
 	/**
