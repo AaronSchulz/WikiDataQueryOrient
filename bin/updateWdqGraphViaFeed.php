@@ -77,7 +77,7 @@ function main() {
 		try {
 			$result = decodeJSON( $rbody );
 		} catch ( Exception $e ) {
-			trigger_error( "Caught error: {$e->getMessage}" );
+			trigger_error( "Caught error: {$e->getMessage()}" );
 			sleep( 5 );
 			continue;
 		}
@@ -161,7 +161,7 @@ function main() {
 		try {
 			$result = decodeJSON( $rbody );
 		} catch ( Exception $e ) {
-			trigger_error( "Caught error: {$e->getMessage}" );
+			trigger_error( "Caught error: {$e->getMessage()}" );
 			sleep( 5 );
 			continue;
 		}
