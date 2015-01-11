@@ -16,6 +16,7 @@ $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[31] AS P31)
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569) FROM {HPwTV[569:+00000001981-09-16T00:00:00Z TO +00000001981-09-17T00:00:00Z] LIMIT(20)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link,claims[569] AS P569,claims[40] AS P40) FROM {HPwTV[569:+00000001971-09-16T00:00:00Z TO +00000001981-09-17T00:00:00Z] ASC RANK(best) WHERE(HPwAnyV[40]) LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSomeV[20] WHERE(HPwAnyV[40])}';
+$q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwSomeV[20] WHERE(HPwV[166:10855195])}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:2590631] LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:5] LIMIT(5)}';
 $q[] = '(id,labels["en"] AS label,sitelinks["enwiki"] AS link) FROM {HPwIV[31:5] WHERE(HPwNoV[40]) LIMIT(10)}';

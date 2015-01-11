@@ -382,15 +382,7 @@ class WdqQueryParser {
 			// Check if there is a RANK condition
 			if ( $token === 'RANK' ) {
 				$rank = self::consumePair( $rest, '()' );
-				if ( $rank === 'best' ) {
-					$rankCond = "best=1";
-				} elseif ( $rank === 'deprecated' ) { // performance
-					throw new WdqParseException( "rank=deprecated filter is not supported" );
-				} elseif ( isset( self::$rankMap[$rank] ) ) {
-					$rankCond = "rank=" . self::$rankMap[$rank];
-				} else {
-					throw new WdqParseException( "Bad rank: '$rank'" );
-				}
+				$rankCond = self::parseRankCond( $rank );
 			// Check if there is a QUALIFY condition
 			} elseif ( $token === 'QUALIFY' ) {
 				if ( $qualiferPrefix === null ) {
@@ -514,71 +506,53 @@ class WdqQueryParser {
 		// and searches on other properties than the one the index was used for.
 		if ( preg_match( "/^(HPwNoV|HPwSomeV|HPwAnyV)\[($dlist)(?:;rank=([a-z]+))?\]$/", $s, $m ) ) {
 			$class = $m[1];
-			if ( $class === 'HPwNoV' ) {
-				$stype = "['novalue']";
-			} elseif ( $class === 'HPwSomeV' ) {
-				$stype = "['somevalue']";
-			} else {
-				$stype = "['value','somevalue']";
-			}
 			$rank = !empty( $m[3] ) ? $m[3] : null;
-			$rankFilter = '';
-			if ( $rank === 'best' ) {
-				$rankFilter = "[best=1]";
-			} elseif ( $rank === 'deprecated' ) { // performance
-				throw new WdqParseException( "rank=deprecated filter is not supported" );
-			} elseif ( isset( self::$rankMap[$rank] ) ) {
-				$rankFilter = "[rank=" . self::$rankMap[$rank] . ']';
-			} elseif ( $rank === null ) {
-				// TODO: inequalities here need OrientDB 2.1
-				#$rankFilter = "[rank >= 0]"; // default
+
+			$contains = array();
+			if ( $class === 'HPwNoV' ) {
+				$contains[] = "snaktype = 'novalue'";
+			} elseif ( $class === 'HPwSomeV' ) {
+				$contains[] = "snaktype = 'somevalue'";
 			} else {
-				throw new WdqParseException( "Bad rank: '$rank'" );
+				$contains[] = "snaktype IN ['value','somevalue']";
 			}
+			$contains[] = self::parseRankCond( $rank );
+			$contains = implode( ' AND ', $contains );
+
 			$or = array();
 			foreach ( explode( ',', $m[2] ) as $pId ) {
-				$or[] = "{$claimPrefix}[$pId]$rankFilter contains (snaktype in $stype)";
+				$or[] = "{$claimPrefix}[$pId] contains ($contains)";
 			}
 			$where = '(' . implode( ' OR ', $or ) . ')';
 		} elseif ( preg_match( "/^HPwV\[(\d+):([^];]+)(?:;rank=([a-z]+))?\]$/", $s, $m ) ) {
 			$pId = $m[1];
 			$rank = !empty( $m[3] ) ? $m[3] : null;
 			$field = "{$claimPrefix}[$pId]";
-			if ( $rank === 'best' ) {
-				$field .= "[best=1]";
-			} elseif ( $rank === 'deprecated' ) { // performance
-				throw new WdqParseException( "rank=deprecated filter is not supported" );
-			} elseif ( isset( self::$rankMap[$rank] ) ) {
-				$field .= "[rank=" . self::$rankMap[$rank] . ']';
-			} elseif ( $rank === null ) {
-				// TODO: inequalities here need OrientDB 2.1
-				#$field .= "[rank >= 0]"; // default
-			} else {
-				throw new WdqParseException( "Bad rank: '$rank'" );
-			}
+			$rCond = self::parseRankCond( $rank );
+
 			$or = array();
 			foreach ( explode( ',', $m[2] ) as $val ) {
 				// Floats: trivial range support
 				if ( preg_match( "/^($float)\s+TO\s+($float)$/", $val, $m ) ) {
-					$or[] = "{$field} contains (datavalue between {$m[1]} and {$m[2]})";
+					$or[] = "{$field} contains (datavalue between {$m[1]} and {$m[2]} and $rCond)";
 				} elseif ( preg_match( "/^(GT|GTE|LT|LTE)\s+($float)$/", $val, $m ) ) {
 					$op = self::$compareOpMap[$m[1]];
-					$or[] = "{$field} contains (datavalue $op {$m[2]})";
+					$or[] = "{$field} contains (datavalue $op {$m[2]} and $rCond)";
 				} elseif ( preg_match( "/^$float$/", $val ) ) {
-					$or[] = "{$field} contains (datavalue = $val)";
+					$or[] = "{$field} contains (datavalue = $val and $rCond)";
 				// Dates: formatted like -20001-01-01T00:00:00Z and +20001-01-01T00:00:00Z
 				// can be compared lexographically for simplicity due to padding
 				} elseif ( preg_match( "/^($date)\s+TO\s+($date)/", $val, $m ) ) {
 					list( , $a, $b ) = $m;
-					$or[] = "{$field} contains (datavalue between '$a' and '$b')";
+					$or[] = "{$field} contains (datavalue between '$a' and '$b' and $rCond)";
 				} elseif ( preg_match( "/^(GT|GTE|LT|LTE)\s+($date)$/", $val, $m ) ) {
 					$op = self::$compareOpMap[$m[1]];
-					$or[] = "{$field} contains (datavalue $op '{$m[2]}')";
+					$or[] = "{$field} contains (datavalue $op '{$m[2]}' and $rCond)";
 				} elseif ( preg_match( "/^$date$/", $val ) ) {
-					$or[] = "{$field} contains (datavalue = '$val')";
+					$or[] = "{$field} contains (datavalue = '$val' and $rCond)";
 				// Strings: exact match only
 				} elseif ( preg_match( "/^\$\d+$/", $val ) ) {
-					$or[] = "{$field} contains (datavalue = '$val')";
+					$or[] = "{$field} contains (datavalue = '$val' and $rCond)";
 				} else {
 					throw new WdqParseException( "Invalid quantity or range: $val" );
 				}
@@ -603,6 +577,24 @@ class WdqQueryParser {
 		}
 
 		return $where;
+	}
+
+	/**
+	 * Parse a rank condition to be used in WHERE or CONTAINS
+	 * @param string $rank
+	 * @return string
+	 */
+	protected static function parseRankCond( $rank ) {
+		if ( $rank === 'best' ) {
+			return "best = 1";
+		} elseif ( $rank === 'deprecated' ) { // performance
+			throw new WdqParseException( "rank=deprecated filter is not supported" );
+		} elseif ( isset( self::$rankMap[$rank] ) ) {
+			return "rank = " . self::$rankMap[$rank];
+		} elseif ( $rank === null ) {
+			return "rank >= 0"; // default
+		}
+		throw new WdqParseException( "Bad rank: '$rank'" );
 	}
 
 	/**
