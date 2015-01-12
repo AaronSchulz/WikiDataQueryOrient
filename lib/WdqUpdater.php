@@ -432,6 +432,7 @@ class WdqUpdater {
 						? (object)$this->collapseReferences( $mainSnak['refs'] )
 						: (object)array();
 					$edge['odeleted'] = !empty( $entity['deleted'] ) ? true : null;
+
 					$newEdgeSids[$edge['class'] . ':' . $edge['sid']] = 1;
 				}
 				unset( $edge );
@@ -799,9 +800,11 @@ class WdqUpdater {
 	protected function sqlSet( array $object ) {
 		$set = array();
 		foreach ( $object as $key => $value ) {
-			if ( is_float( $value ) || is_int( $value ) ) {
+			if ( is_bool( $value ) ) {
+				$set[] = "$key=" . ( $value ? 'true' : 'false' );
+			} elseif ( is_float( $value ) || is_int( $value ) ) {
 				$set[] = "$key=$value";
-			} elseif ( is_scalar( $value ) ) {
+			} elseif ( is_string( $value ) ) {
 				$set[] = "$key='" . addcslashes( $value, "'\\" ) . "'";
 			} elseif ( $value === null ) {
 				$set[] = "$key=NULL";
