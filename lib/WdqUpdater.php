@@ -14,7 +14,7 @@ class WdqUpdater {
 	/** @var string */
 	protected $sessionId;
 
-	/** @var array */
+	/** @var array Map of (id => #rid) */
 	protected $pCache = array();
 	/** @var MapCacheLRU */
 	protected $iCache;
@@ -133,19 +133,16 @@ class WdqUpdater {
 			'id'        => $id,
 			'labels'    => $labels ? (object)$labels : (object)array(),
 			'sitelinks' => $siteLinks ? (object)$siteLinks : (object)array(),
+			'claims'    => isset( $item['claims'] )
+				// Include simplified claims for easy filtering/selecting
+				? (object)$this->getSimpliedClaims( $item['claims'] )
+				: (object)array(),
 			'deleted'   => null,
 			'stub'      => null
 		);
 
-		if ( isset( $item['claims'] ) ) {
-			// Include simplified claims for easy filtering/selecting
-			$coreItem['claims'] = (object)$this->getSimpliedClaims( $item['claims'] );
-		} else {
-			$coreItem['claims'] = (object)array();
-		}
-
 		if ( $update === 'insert' ) {
-			return "create vertex Item content " . WdqUtils::toJSON( $coreItem );
+			return "create vertex Item content " . json_encode( $coreItem );
 		} elseif ( $update === 'update' ) {
 			$set = $this->sqlSet( $coreItem );
 			return "update Item set $set where id={$coreItem['id']}";
@@ -229,8 +226,12 @@ class WdqUpdater {
 				$dataValue = (string) $snak['datavalue']['value'];
 			}
 
-			$simpleSnak['valuetype'] = $valueType;
 			$simpleSnak['datavalue'] = $dataValue;
+			if ( $valueType === 'wikibase-entityid' ) { // simplify
+				$simpleSnak['valuetype'] = 'wikibase-' . $snak['datavalue']['value']['entity-type'];
+			} else {
+				$simpleSnak['valuetype'] = $valueType;
+			}
 		}
 
 		return $simpleSnak;
@@ -281,37 +282,41 @@ class WdqUpdater {
 	}
 
 	/**
-	 * @param array $item
+	 * @param array $property
 	 * @param string $update (insert/update/upsert)
 	 * @return string
 	 */
-	protected function importPropertyVertexSQL( array $item, $update ) {
+	protected function importPropertyVertexSQL( array $property, $update ) {
 		$labels = array(); // map of (<language> => <label>)
 		// Flatten labels to a 1-level list for querying
-		if ( isset( $item['labels'] ) ) {
-			foreach ( $item['labels'] as $lang => $label ) {
+		if ( isset( $property['labels'] ) ) {
+			foreach ( $property['labels'] as $lang => $label ) {
 				$labels[$lang] = $label['value'];
 			}
 		}
 
-		$id = WdqUtils::wdcToLong( $item['id'] );
+		$id = WdqUtils::wdcToLong( $property['id'] );
 		if ( $id <= 0 ) {
 			throw new Exception( "Bad entity ID: $id" );
 		}
 
-		$coreItem = array(
+		$coreProperty = array(
 			'id'       => $id,
-			'datatype' => $item['datatype'],
+			'datatype' => $property['datatype'],
 			'labels'   => $labels ? (object)$labels : (object)array(),
+			'claims'   => isset( $property['claims'] )
+				// Include simplified claims for easy filtering/selecting
+				? (object)$this->getSimpliedClaims( $property['claims'] )
+				: (object)array(),
 			'deleted'  => null,
 			'stub'     => null
 		);
 
 		if ( $update === 'insert' ) {
-			return "create vertex Property content " . WdqUtils::toJSON( $coreItem );
+			return "create vertex Property content " . json_encode( $coreProperty );
 		} elseif ( $update === 'update' ) {
-			$set = $this->sqlSet( $coreItem );
-			return "update Property set $set where id={$coreItem['id']}";
+			$set = $this->sqlSet( $coreProperty );
+			return "update Property set $set where id={$coreProperty['id']}";
 		}
 
 		throw new Exception( "Bad method '$update'." );
@@ -325,40 +330,74 @@ class WdqUpdater {
 	 * @param string $method (rebuild/bulk_init)
 	 * @param array|null $classes Only do certain edge classes
 	 */
-	public function makeItemEdges( array $entities, $method = 'rebuild', array $classes = null ) {
+	public function makeEntityEdges( array $entities, $method = 'rebuild', array $classes = null ) {
+		if ( !$entities ) {
+			return; // nothing to do
+		}
+
 		$queries = array();
 
-		$itemRIDs = array();
+		// Load #RIDs into process caches...
+		$iIds = $pIds = array();
 		foreach ( $entities as $entity ) {
-			if ( isset( $entity['rid'] ) ) {
-				$itemRIDs[] = $entity['rid'];
-				$this->iCache->set( (int) $entity['id'], $entity['rid'] );
+			if ( $entity['type'] === 'item' ) {
+				$iIds[] = $entity['id'];
+				if ( isset( $entity['rid'] ) ) { // performance
+					$this->iCache->set( (int) $entity['id'], $entity['rid'] );
+				}
+			} elseif ( $entity['type'] === 'property' ) {
+				$pIds[] = $entity['id'];
+				if ( isset( $entity['rid'] ) ) { // performance
+					$this->pCache[(int) $entity['id']] = $entity['rid'];
+				}
+			} else {
+				throw new Exception( "Entity has no type" );
+			}
+		}
+		$this->updateItemRIDCache( $iIds );
+		$this->updatePropertyRIDCache( $pIds );
+
+		// Get all of the vertex #RIDs (which should exist)...
+		$rids = array();
+		foreach ( $entities as $entity ) {
+			if ( $entity['type'] === 'item' ) {
+				$rids[] = $this->iCache->get( (int) $entity['id'] );
+			} elseif ( $entity['type'] === 'property' ) {
+				$rids[] = $this->pCache[(int) $entity['id']];
 			}
 		}
 
 		$curEdgeSids = array(); // map of (class:sid => #RID)
 		if ( $method !== 'bulk_init' ) {
-			$from = '[' . implode( ',', $itemRIDs ) . ']';
+			// Get all existing edges while removing duplicates...
+			$from = '[' . implode( ',', $rids ) . ']';
 			$res = $this->tryQuery(
 				"select sid,@class,@RID from " .
 				"(select expand(outE()) from $from)", 1e9 );
 			foreach ( $res as $record ) {
 				$key = $record['class'] . ':' . $record['sid'];
 				if ( isset( $curEdgeSids[$key] ) ) {
-					// Delete any redundant edges
-					$queries[] = "delete edge {$record['RID']}";
+					$queries[] = "delete edge {$record['RID']}"; // redundant
 				} else {
 					$curEdgeSids[$key] = $record['RID'];
 				}
 			}
 		}
 
+		// Update/create edges as needed...
 		$newEdgeSids = array(); // map of (class:sid => 1)
 		foreach ( $entities as $entity ) {
-			$queries = array_merge(
-				$queries,
-				$this->importItemEdgesSQL( $entity, $curEdgeSids, $newEdgeSids, $classes )
-			);
+			if ( $entity['type'] === 'item' ) {
+				$queries = array_merge(
+					$queries,
+					$this->updateItemEdgesSQL( $entity, $curEdgeSids, $newEdgeSids, $classes )
+				);
+			} elseif ( $entity['type'] === 'property' ) {
+				$queries = array_merge(
+					$queries,
+					$this->updatePropEdgesSQL( $entity, $curEdgeSids, $newEdgeSids, $classes )
+				);
+			}
 		}
 
 		if ( $method !== 'bulk_init' ) {
@@ -380,13 +419,13 @@ class WdqUpdater {
 	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel
 	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
 	 *
-	 * @param array $entity Simplified entity
+	 * @param array $entity Simplified Item entity
 	 * @param array $curEdgeSids Map of (class:sid => #RID) for all sids of at least $item
 	 * @param array $newEdgeSids Empty array
 	 * @param array|null $classes Only do certain edge classes
 	 * @return array
 	 */
-	public function importItemEdgesSQL(
+	public function updateItemEdgesSQL(
 		array $entity, array $curEdgeSids, array &$newEdgeSids, array $classes = null
 	) {
 		if ( !isset( $entity['claims'] ) ) {
@@ -395,7 +434,7 @@ class WdqUpdater {
 			return array(); // nothing to do
 		}
 
-		$qId = (int) $entity['id'];
+		$thisId = (int) $entity['id'];
 
 		$dvEdges = array(); // list of data value statements (maps with class/val/rank)
 		foreach ( $entity['claims'] as $propertyId => $statements ) {
@@ -403,18 +442,18 @@ class WdqUpdater {
 			foreach ( $statements as $mainSnak ) {
 				$edges = array();
 				if ( $mainSnak['snaktype'] === 'value' ) {
-					$edges = $this->getValueStatementEdges( $qId, $pId, $mainSnak );
+					$edges = $this->getValueStatementEdges( $thisId, $pId, $mainSnak );
 				} elseif ( $mainSnak['snaktype'] === 'somevalue' ) {
 					$edges[] = array(
 						'class'   => 'HPwSomeV',
-						'oid'     => $qId,
+						'oid'     => $thisId,
 						'iid'     => $pId,
 						'toClass' => 'Property'
 					);
 				} elseif ( $mainSnak['snaktype'] === 'novalue' ) {
 					$edges[] = array(
 						'class'   => 'HPwNoV',
-						'oid'     => $qId,
+						'oid'     => $thisId,
 						'iid'     => $pId,
 						'toClass' => 'Property'
 					);
@@ -454,18 +493,19 @@ class WdqUpdater {
 			unset( $dvEdge['toClass'] );
 
 			$key = $class . ":" . $dvEdge['sid'];
+			// If an edge was found with the SID, then update it...
 			if ( isset( $curEdgeSids[$key] ) ) {
-				// If an edge was found with the SID, then update it...
 				$rid = $curEdgeSids[$key];
 				$set = $this->sqlSet( $dvEdge );
 				$queries[] = "update $rid set $set";
+			// If no edge was found with the SID, then make a new one...
 			} else {
-				// If no edge was found with the SID, then make a new one...
-				if ( $this->iCache->has( $qId ) ) {
-					$from = $this->iCache->get( $qId );
+				if ( $this->iCache->has( $thisId ) ) {
+					$from = $this->iCache->get( $thisId );
 				} else {
-					$from = "(select from Item where id=$qId)";
+					$from = "(select from Item where id=$thisId)";
 				}
+
 				if ( $toClass === 'Property' && isset( $this->pCache[$dvEdge['iid']] ) ) {
 					$to = $this->pCache[$dvEdge['iid']];
 				} elseif ( $toClass === 'Item' && $this->iCache->has( $dvEdge['iid'] ) ) {
@@ -482,14 +522,98 @@ class WdqUpdater {
 					unset( $dvEdge['odeleted'] );
 				}
 
-				$sql = "create edge $class from $from to $to content " .
-					WdqUtils::toJSON( $dvEdge );
+				$sql = "create edge $class from $from to $to content " . json_encode( $dvEdge );
 				$queries[] = $sql;
 			}
 		}
 
 		if ( mt_rand( 0, 99 ) == 0 ) {
 			$this->updateItemRIDCache( $this->iHitCache->getAllKeys() );
+		}
+
+		return $queries;
+	}
+
+	/**
+	 * See http://www.mediawiki.org/wiki/Wikibase/DataModel
+	 * See https://www.wikidata.org/wiki/Wikidata:Glossary
+	 *
+	 * @param array $entity Simplified Property entity
+	 * @param array $curEdgeSids Map of (class:sid => #RID) for all sids of at least $item
+	 * @param array $newEdgeSids Empty array
+	 * @param array|null $classes Only do certain edge classes
+	 * @return array
+	 */
+	public function updatePropEdgesSQL(
+		array $entity, array $curEdgeSids, array &$newEdgeSids, array $classes = null
+	) {
+		if ( !isset( $entity['claims'] ) ) {
+			return array(); // nothing to do
+		} elseif ( $classes !== null && !count( $classes ) ) {
+			return array(); // nothing to do
+		}
+
+		$thisId = (int) $entity['id'];
+
+		$dvEdges = array(); // list of data value statements (maps with class/val/rank)
+		foreach ( $entity['claims'] as $propertyId => $statements ) {
+			$pId = (int) $propertyId;
+			foreach ( $statements as $mainSnak ) {
+				if ( $mainSnak['snaktype'] === 'value'
+					&& $mainSnak['valuetype'] === 'wikibase-property'
+				) {
+					$otherId = (int) $mainSnak['datavalue'];
+					$dvEdges[] = array(
+						'class'     => 'HPaPV',
+						'pid'       => $pId,
+						'oid'       => $thisId,
+						'iid'       => $otherId,
+						'sid'       => $mainSnak['sid'],
+						'odeleted'  => !empty( $entity['deleted'] ) ? true : null
+					);
+					$newEdgeSids['HPaPV:' . $mainSnak['sid']] = 1;
+				}
+			}
+		}
+
+		$queries = array();
+
+		// Create/update all of the new outgoing edges...
+		foreach ( $dvEdges as $dvEdge ) {
+			if ( $classes && !in_array( $dvEdge['class'], $classes ) ) {
+				continue; // skip this edge class
+			}
+			$class = $dvEdge['class'];
+			unset( $dvEdge['class'] );
+
+			$key = $class . ":" . $dvEdge['sid'];
+			// If an edge was found with the SID, then update it...
+			if ( isset( $curEdgeSids[$key] ) ) {
+				$rid = $curEdgeSids[$key];
+				$set = $this->sqlSet( $dvEdge );
+				$queries[] = "update $rid set $set";
+			// If no edge was found with the SID, then make a new one...
+			} else {
+				if ( isset( $this->pCache[$thisId] ) ) {
+					$from = $this->pCache[$thisId];
+				} else {
+					$from = "(select from Property where id=$thisId)";
+				}
+
+				if ( isset( $this->pCache[$dvEdge['iid']] ) ) {
+					$to = $this->pCache[$dvEdge['iid']];
+				} else {
+					$to = "(select from Property where id={$dvEdge['iid']})";
+				}
+
+				if ( !$dvEdge['odeleted'] ) {
+					// https://github.com/orientechnologies/orientdb/issues/3365
+					unset( $dvEdge['odeleted'] );
+				}
+
+				$sql = "create edge $class from $from to $to content " . json_encode( $dvEdge );
+				$queries[] = $sql;
+			}
 		}
 
 		return $queries;
@@ -507,7 +631,7 @@ class WdqUpdater {
 		$dvEdges = array();
 
 		$type = $mainSnak['valuetype'];
-		if ( $type === 'wikibase-entityid' ) {
+		if ( $type === 'wikibase-item' ) {
 			$otherId = (int) $mainSnak['datavalue'];
 			$dvEdges[] = array(
 				'class'   => 'HPwIV',
@@ -606,7 +730,7 @@ class WdqUpdater {
 				'deleted'   => true,
 				'stub'      => true
 			);
-			$queries[] = "create vertex Property content " . WdqUtils::toJSON( $item );
+			$queries[] = "create vertex Property content " . json_encode( $item );
 		}
 
 		$this->tryCommand( $queries );
@@ -630,7 +754,7 @@ class WdqUpdater {
 				'deleted'   => true,
 				'stub'      => true
 			);
-			$queries[] = "create vertex Item content " . WdqUtils::toJSON( $item );
+			$queries[] = "create vertex Item content " . json_encode( $item );
 		}
 
 		$this->tryCommand( $queries );
@@ -809,7 +933,7 @@ class WdqUpdater {
 			} elseif ( $value === null ) {
 				$set[] = "$key=NULL";
 			} else {
-				$set[] = "$key=" . WdqUtils::toJSON( $value );
+				$set[] = "$key=" . json_encode( $value );
 			}
 		}
 		return implode( ', ', $set );

@@ -99,14 +99,4 @@ class WdqUtils {
 
 		return $coords;
 	}
-
-	/**
-	 * Take an arbitrarily nested array and turn it into JSON
-	 *
-	 * @param array|object $object
-	 * @return string
-	 */
-	public static function toJSON( $object ) {
-		return json_encode( $object, JSON_UNESCAPED_SLASHES );
-	}
 }

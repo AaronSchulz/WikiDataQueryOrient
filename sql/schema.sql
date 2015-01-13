@@ -39,6 +39,8 @@ create property Property.id long;
 create property Property.labels EMBEDDEDMAP string;
 -- See See http://www.wikidata.org/wiki/Special:ListDatatypes
 create property Property.datatype string;
+-- Store simplified claims as map of <property> => ((type,value,qlfrs),...)
+create property Property.claims EMBEDDEDMAP embedded;
 -- Flag things as deleted when deleted/moved
 create property Property.deleted boolean;
 create property Property.stub boolean;
@@ -46,6 +48,7 @@ create property Property.stub boolean;
 alter property Property.id MANDATORY true;
 alter property Property.labels MANDATORY true;
 alter property Property.datatype MANDATORY true;
+alter property Property.claims MANDATORY true;
 -- P codes are unique
 create index ProperyIdIdx on Property (id) unique;
 
@@ -235,6 +238,22 @@ alter property HIaPV.iid MANDATORY true;
 alter property HIaPV.sid MANDATORY true;
 create index HIaPVIidPidIdx on HIaPV (iid, pid, oid) notunique;
 create index HIaPVIidIdx on HIaPV (iid, oid) notunique;
+
+-- "Property X has a Property value Z for Property Y" relationships
+create class HPaPV extends Claim;
+create property HPaPV.out LINK Property;
+create property HPaPV.in LINK Property;
+create property HPaPV.pid long;
+create property HPaPV.oid long;
+create property HPaPV.odeleted boolean;
+create property HPaPV.iid long;
+create property HPaPV.sid string;
+alter property HPaPV.pid MANDATORY true;
+alter property HPaPV.oid MANDATORY true;
+alter property HPaPV.iid MANDATORY true;
+alter property HPaPV.sid MANDATORY true;
+create index HPaPVIidPidIdx on HPaPV (iid, pid, oid) notunique;
+create index HPaPVIidIdx on HPaPV (iid, oid) notunique;
 
 -- Metadata table for tracking DB status info (e.g. for feed updates)
 create class DBStatus;

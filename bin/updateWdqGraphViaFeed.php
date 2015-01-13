@@ -206,7 +206,7 @@ function main() {
 				$entity['claims'] = $updater->getSimpliedClaims( $entity['claims'] );
 			}
 		}
-		$updater->makeItemEdges( $entitiesUpsert, 'rebuild' );
+		$updater->makeEntityEdges( $entitiesUpsert, 'rebuild' );
 		// (d) Apply any deletions/restorations (effects vertexes and edges)...
 		$updater->deleteEntities( 'Item', array_keys( $itemsDeleted ) );
 		$updater->deleteEntities( 'Property', array_keys( $propsDeleted ) );
