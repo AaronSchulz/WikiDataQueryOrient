@@ -340,20 +340,24 @@ class WdqUpdater {
 		// Load #RIDs into process caches...
 		$iIds = $pIds = array();
 		foreach ( $entities as $entity ) {
+			if ( !is_int( $entity['id'] ) ) {
+				throw new Exception( "Got non-integer ID '{$entity['id']}'." );
+			}
 			if ( $entity['type'] === 'item' ) {
 				$iIds[] = $entity['id'];
 				if ( isset( $entity['rid'] ) ) { // performance
-					$this->iCache->set( (int) $entity['id'], $entity['rid'] );
+					$this->iCache->set( $entity['id'], $entity['rid'] );
 				}
 			} elseif ( $entity['type'] === 'property' ) {
 				$pIds[] = $entity['id'];
 				if ( isset( $entity['rid'] ) ) { // performance
-					$this->pCache[(int) $entity['id']] = $entity['rid'];
+					$this->pCache[$entity['id']] = $entity['rid'];
 				}
 			} else {
-				throw new Exception( "Entity has no type" );
+				throw new Exception( "Unrecognized entity type '{$entity['type']}'." );
 			}
 		}
+
 		$this->updateItemRIDCache( $iIds );
 		$this->updatePropertyRIDCache( $pIds );
 
@@ -361,9 +365,9 @@ class WdqUpdater {
 		$rids = array();
 		foreach ( $entities as $entity ) {
 			if ( $entity['type'] === 'item' ) {
-				$rids[] = $this->iCache->get( (int) $entity['id'] );
+				$rids[] = $this->iCache->get( $entity['id'] );
 			} elseif ( $entity['type'] === 'property' ) {
-				$rids[] = $this->pCache[(int) $entity['id']];
+				$rids[] = $this->pCache[$entity['id']];
 			}
 		}
 
@@ -953,7 +957,7 @@ class WdqUpdater {
 	/**
 	 * Build the P# => #RID cache map
 	 *
-	 * @param array $ids
+	 * @param array $ids integers
 	 */
 	protected function updatePropertyRIDCache( array $ids ) {
 		$orClause = array();
@@ -975,7 +979,7 @@ class WdqUpdater {
 	/**
 	 * Build the Q# => #RID cache map
 	 *
-	 * @param array $ids
+	 * @param array $ids integers
 	 */
 	protected function updateItemRIDCache( array $ids ) {
 		$orClause = array();

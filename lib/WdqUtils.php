@@ -6,11 +6,14 @@ class WdqUtils {
 	 * @return integer
 	 */
 	public static function wdcToLong( $code ) {
+		if ( is_int( $code ) || ctype_digit( $code ) ) {
+			return (int) $code; // already an integer
+		}
 		$int = substr( $code, 1 ); // strip the Q/P/L
-		if ( !preg_match( '/^\d+$/', $int ) ) {
+		if ( !ctype_digit( $int ) ) {
 			throw new Exception( "Invalid code '$code'." );
 		}
-		return (int)$int;
+		return (int) $int;
 	}
 
 	/**

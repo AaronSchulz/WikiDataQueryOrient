@@ -193,7 +193,9 @@ function main() {
 			$entityStubs['P'] = array_merge( $entityStubs['P'], $gaps );
 		}
 
-		print( "Updating graph [" . count( $entitiesUpsert ) . " change(s)]...\n" );
+		$c = count( $entitiesUpsert );
+		$s = count( $entityStubs['Q'] ) + count( $entityStubs['P'] );
+		print( "Updating graph [$c change(s)] [$s stub(s)]...\n" );
 		// (a) Make the stubs for missing entities first...
 		$updater->createDeletedItemStubs( $entityStubs['Q'] );
 		$updater->createDeletedPropertyStubs( $entityStubs['P'] );
@@ -201,6 +203,8 @@ function main() {
 		$updater->importEntities( $entitiesUpsert, 'upsert' );
 		// (c) Connect the entities with edges...
 		foreach ( $entitiesUpsert as &$entity ) {
+			// Convert ID to DB form
+			$entity['id'] = WdqUtils::wdcToLong( $entity['id'] );
 			// Convert claims to DB form in order to call makeItemEdges()
 			if ( isset( $entity['claims'] ) ) {
 				$entity['claims'] = $updater->getSimpliedClaims( $entity['claims'] );
