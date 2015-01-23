@@ -133,7 +133,7 @@ function main() {
 					unset( $propsRestored[$id] );
 				}
 			} elseif ( $logTypeAction === 'delete/restore' ) {
-				print( "{$change['timestamp']} Restored page: {$change['title']}\n" );
+				print( "{$change['timestamp']} $logTypeAction: {$change['title']}\n" );
 				if ( $change['ns'] == 0 ) { // Item
 					$itemsRestored[$id] = 1;
 					$entitiesChanged["Q$id"] = $id;
