@@ -731,6 +731,7 @@ class WdqUpdater {
 				'id'        => (int) $id,
 				'labels'    => (object)array(),
 				'datatype'  => 'unknown',
+				'claims'    => (object)array(),
 				'deleted'   => true,
 				'stub'      => true
 			);
