@@ -51,8 +51,8 @@ function iterateClassIds( WdqUpdater $updater, $class, $bSize, $posFile, callabl
 function main() {
 	$options = getopt( '', array( "user:", "password:", "url::", "posdir::" ) );
 
-	$user = $options['user'];
-	$password = $options['password'];
+	$user = isset( $options['user'] ) ? $options['user'] : 'admin';
+	$password = isset( $options['password'] ) ? $options['password'] : 'admin';
 	$url = isset( $options['url'] ) ? $options['url'] : 'http://localhost:2480';
 	$posFile = isset( $options['posdir'] )
 		? "{$options['posdir']}/stubvertexes.pos"

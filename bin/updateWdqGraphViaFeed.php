@@ -15,8 +15,8 @@ ini_set( 'memory_limit', '256M' );
 function main() {
 	$options = getopt( '', array( "user:", "password:", "url::" ) );
 
-	$user = $options['user'];
-	$password = $options['password'];
+	$user = isset( $options['user'] ) ? $options['user'] : 'admin';
+	$password = isset( $options['password'] ) ? $options['password'] : 'admin';
 	$url = isset( $options['url'] ) ? $options['url'] : 'http://localhost:2480';
 
 	$http = new MultiHttpClient( array() );

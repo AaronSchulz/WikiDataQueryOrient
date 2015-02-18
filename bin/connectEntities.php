@@ -53,8 +53,8 @@ function main() {
 		"user:", "password:", "url::", "posdir::", "method::", "modulo::", "classes::"
 	) );
 
-	$user = $options['user'];
-	$password = $options['password'];
+	$user = isset( $options['user'] ) ? $options['user'] : 'admin';
+	$password = isset( $options['password'] ) ? $options['password'] : 'admin';
 	$url = isset( $options['url'] ) ? $options['url'] : 'http://localhost:2480';
 	$method = isset( $options['method'] ) ? $options['method'] : 'rebuild';
 	$posFile = isset( $options['posdir'] )
