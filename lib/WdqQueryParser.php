@@ -244,6 +244,8 @@ class WdqQueryParser {
 		$ofields = self::OUT_ITEM_FIELDS; // out.* fields to get Item fields
 		$gvar = self::RE_VAR; // item IDs generators via GIVEN
 
+		// @TODO: dedup results (https://github.com/orientechnologies/orientdb/issues/3359)
+
 		// Get the primary select condition (using some index)...
 		// @note: watch out for https://bugs.php.net/bug.php?id=51881
 		// Case A: queries to list items that use a property or item
@@ -252,7 +254,7 @@ class WdqQueryParser {
 			$id = $m[2]; // property ID or item ID
 			$cont = !empty( $m[3] ) ? "AND oid > {$m[3]}" : "";
 			$orderBy = "ORDER BY iid ASC,oid ASC";
-			$sql = "SELECT $ofields FROM $class WHERE iid=$id $cont AND @ECOND@ GROUP BY oid $orderBy";
+			$sql = "SELECT $ofields FROM $class WHERE iid=$id $cont AND @ECOND@ $orderBy";
 		// Case B: queries that list items with certain values for a property
 		} elseif ( preg_match( "/^HPwIV\[(\d+):(\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
@@ -260,14 +262,14 @@ class WdqQueryParser {
 			$cont = !empty( $m[3] ) ? "AND oid > {$m[3]}" : "";
 			$cond = "(iid=$iId AND pid=$pId)";
 			$orderBy = "ORDER BY iid ASC,pid ASC,oid ASC"; // parenthesis needed for index usage
-			$sql = "SELECT $ofields FROM HIaPV WHERE $cond $cont AND @ECOND@ GROUP BY oid $orderBy";
+			$sql = "SELECT $ofields FROM HIaPV WHERE $cond $cont AND @ECOND@ $orderBy";
 		} elseif ( preg_match( "/^HPwSV\[(\d+):(\\$\d+)\]\s*(?:CONTINUE\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
 			$valId = $m[2];
 			$cont = !empty( $m[3] ) ? "AND oid > {$m[3]}" : "";
 			$cond = "(iid=$pId AND val=$valId)"; // parenthesis needed for index usage
 			$orderBy = "ORDER BY oid ASC"; // give a stable ordering when distributed
-			$sql = "SELECT $ofields FROM HPwSV WHERE $cond $cont AND @ECOND@ GROUP BY oid $orderBy";
+			$sql = "SELECT $ofields FROM HPwSV WHERE $cond $cont AND @ECOND@ $orderBy";
 		} elseif ( preg_match( "/^(HPwQV|HPwTV)\[(\d+):([^],]+)\]\s*(ASC|DESC)?\s*(?:SKIP\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$class = $m[1];
 			$pId = $m[2];
@@ -286,7 +288,7 @@ class WdqQueryParser {
 			// @note: could be several claims...use the first (in order); good with rank=best
 			// @note: with several claims, *value may change depending on ASC vs DESC
 			$orderBy = "ORDER BY iid $order,val $order,oid $order";
-			$sql = "SELECT $fields FROM $class WHERE $cond AND @ECOND@ GROUP BY oid $orderBy $skip";
+			$sql = "SELECT $fields FROM $class WHERE $cond AND @ECOND@ $orderBy $skip";
 		} elseif ( preg_match( "/^HPwCV\[(\d+):([^],]+)\]\s*(?:SKIP\((\d+)\)\s*)?/", $rest, $m ) ) {
 			$pId = $m[1];
 			// Support only one condition due to query planner (commas disallowed above)
@@ -296,7 +298,7 @@ class WdqQueryParser {
 			$fields = "$ofields,\$distance AS *distance";
 			$orderBy = "ORDER BY *distance ASC,oid ASC"; // give a stable ordering when distributed
 			// @note: could be several claims...use the closest one; good with rank=best
-			$sql = "SELECT $fields FROM HPwCV WHERE $cond AND iid=$pId AND @ECOND@ GROUP BY oid $orderBy $skip";
+			$sql = "SELECT $fields FROM HPwCV WHERE $cond AND iid=$pId AND @ECOND@ $orderBy $skip";
 		// Case C: queries that fetch items by ID or sitelinks
 		} elseif ( preg_match( "/^items\[($dlist)\]\s*/", $rest, $m ) ) {
 			$iIds = explode( ',', $m[1] );
