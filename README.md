@@ -6,7 +6,7 @@ Importing scripts and query helper classes for storing WikiData information in O
 DB schema and server setup
 --------------
 
-1)	Get and compile OrientDB 2.0 SNAPSHOT (https://github.com/orientechnologies/orientdb).
+1)	Get and compile OrientDB SNAPSHOT (https://github.com/orientechnologies/orientdb).
 	Use the 'develop' branch.
 
 2)	Get and compile orientdb-lucene (https://github.com/orientechnologies/orientdb-lucene).
@@ -20,8 +20,10 @@ DB schema and server setup
 4) 	Edit the server config XML file, setting log.file.level to "warning".
 
 5) 	Set the root user and password (e.g. "root"/"root").
+	If needed, drop any prior DB via: "drop database remote:localhost/WikiData root root".
 
 6) 	Run the sql/schema.sql via the OrientDB console (e.g. console.sh).
+	(e.g. .\console.bat F:\Dev\WikiDataQueryOrient\sql\schema.sql).
 
 7)	Save JSON dump file from http://dumps.wikimedia.org/other/wikidata/
 
